@@ -10,6 +10,7 @@ using Clinkon1C.Modules.Licenses;
 using Clinkon1C.Modules.Processes;
 using Clinkon1C.Modules.Templates;
 using Clinkon1C.Modules.COM;
+using Clinkon1C.Modules.EventLog;
 using Clinkon1C.Modules.Firewall;
 using Clinkon1C.Modules.Web;
 
@@ -86,7 +87,8 @@ public class FarApp
     private readonly ConfigsModule      _configs;
     private readonly DiagnosticsModule  _diagnostics;
     private readonly ComModule          _com;
-    private readonly FirewallModule     _firewall = new();
+    private readonly FirewallModule     _firewall  = new();
+    private readonly EventLogModule     _eventLog  = new();
     private volatile string?          _updateNotice;
     private readonly Func<string?>?   _updateChecker;
 
@@ -242,6 +244,7 @@ public class FarApp
             ("Диагностика...",  () => _diagnostics.ScanSync()),
             ("COM...",          () => _com.Scan()),
             ("Брандмауэр...",   () => _firewall.Refresh()),
+            ("EventLog...",     () => _eventLog.Load()),
         };
 
         int total = steps.Length;
@@ -434,6 +437,15 @@ public class FarApp
                     ModuleId    = "firewall",
                     Paths       = new List<string>(),
                     Description = "порты 1С (1540–1591)"
+                },
+                new NavItem
+                {
+                    Name        = "Журнал событий",
+                    SizeBytes   = 0,
+                    CanEnter    = true,
+                    ModuleId    = "eventlog",
+                    Paths       = new List<string>(),
+                    Description = "Windows EventLog / 1C:Enterprise"
                 }
             }
         };
@@ -1136,6 +1148,8 @@ public class FarApp
                     EnterCom();
                 else if (item.ModuleId == "firewall")
                     DoFirewallInfo();
+                else if (item.ModuleId == "eventlog")
+                    DoEventLogInfo();
                 break;
 
             case NavLevelKind.CacheRoot:
@@ -2660,6 +2674,40 @@ public class FarApp
                 else R.Invalidate();
             }
         }
+    }
+
+    // ── Журнал событий Windows ───────────────────────────────────────────────
+
+    private void DoEventLogInfo()
+    {
+        var filter = EventLogFilter.ErrorsWarnings;
+
+        (string title, string content) GetInfo()
+        {
+            var visible  = EventLogModule.Apply(_eventLog.Entries, filter).ToList();
+            var fLabel   = EventLogModule.FilterLabel(filter);
+            var title    = $"Журнал событий 1С  [{fLabel}]  — {visible.Count} записей";
+            var content  = EventLogModule.FormatEntries(visible);
+            return (title, content);
+        }
+
+        string hint = "[F] Фильтр  [R] Обновить  ↑↓ PgUp/PgDn — скролл  Esc — закрыть";
+
+        ConsoleDialog.ShowTextWithKeys(GetInfo, hint, (key, ch) =>
+        {
+            if (key == ConsoleKey.F || char.ToLower(ch) == 'f')
+            {
+                filter = EventLogModule.NextFilter(filter);
+                return true;
+            }
+            if (key == ConsoleKey.R || char.ToLower(ch) == 'r')
+            {
+                ConsoleDialog.ShowProgress("Загрузка событий...",
+                    _ => _eventLog.Load(EventLogModule.DefaultMax));
+                return true;
+            }
+            return true;
+        });
     }
 
     // ── Эмуляторы HASP ───────────────────────────────────────────────────────
