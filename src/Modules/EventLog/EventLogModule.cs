@@ -16,7 +16,7 @@ public class LogEntry1C
 
 public class EventLogModule
 {
-    private static readonly string[] Sources = { "1C:Enterprise", "1CV8" };
+    private static readonly string[] Sources = { "1C:Enterprise", "1CV8", "Clinkon1C" };
     public const int DefaultMax = 300;
 
     public List<LogEntry1C> Entries { get; private set; } = new();
@@ -59,11 +59,12 @@ public class EventLogModule
         return result;
     }
 
+    // 7 символов — совпадает с шириной level в Logger ("INFO   ", "WARN   ", "ERROR  ")
     private static string LevelLabel(Diag.EventLogEntryType t) => t switch
     {
         Diag.EventLogEntryType.Error       => "ОШИБКА ",
         Diag.EventLogEntryType.Warning     => "ПРЕДУПР",
-        Diag.EventLogEntryType.Information => "инфо   ",
+        Diag.EventLogEntryType.Information => "ИНФО   ",
         _                                  => "?      ",
     };
 
@@ -88,30 +89,47 @@ public class EventLogModule
         _                             => EventLogFilter.All,
     };
 
+    // Формат колонок совпадает с Logger.Write:
+    // datetime(19)  level(7)  source(16)  message
+    // Итого до message: 19 + 2 + 7 + 2 + 16 + 2 = 48 символов
+    private const int MsgCol = 48;
+
     public static string FormatEntries(IEnumerable<LogEntry1C> entries)
     {
-        var sb = new System.Text.StringBuilder();
+        var indent = new string(' ', MsgCol);
+        var sb     = new System.Text.StringBuilder();
+
         foreach (var e in entries)
         {
+            var msgLines = e.Message
+                .Replace("\r", "")
+                .Split('\n')
+                .Select(l => l.Trim())
+                .Where(l => l.Length > 0)
+                .ToArray();
+
+            // Для записей с EventId (не наши) добавляем #id перед первой строкой
+            var prefix    = e.EventId > 0 ? $"#{e.EventId} " : "";
+            var firstLine = msgLines.Length > 0 ? msgLines[0] : "";
+
             sb.Append(e.TimeGenerated.ToString("yyyy-MM-dd HH:mm:ss"));
             sb.Append("  ");
-            sb.Append(e.Level);
-            sb.Append("  #");
-            sb.Append(e.EventId);
+            sb.Append(e.Level);            // 7 символов
             sb.Append("  ");
-            sb.AppendLine(e.Source);
+            sb.Append(e.Source.PadRight(16));
+            sb.Append("  ");
+            sb.Append(prefix);
+            sb.AppendLine(firstLine);
 
-            // Первые 5 строк сообщения с отступом
-            var lines = e.Message.Replace("\r", "").Split('\n');
-            int shown = Math.Min(lines.Length, 5);
-            for (int i = 0; i < shown; i++)
-            {
-                var l = lines[i].Trim();
-                if (l.Length > 0) sb.Append("  ").AppendLine(l);
-            }
-            if (lines.Length > shown) sb.AppendLine("  ...");
+            int shown = Math.Min(msgLines.Length, 6);
+            for (int i = 1; i < shown; i++)
+                sb.Append(indent).AppendLine(msgLines[i]);
+            if (msgLines.Length > shown)
+                sb.Append(indent).AppendLine("...");
+
             sb.AppendLine();
         }
+
         return sb.Length == 0 ? "(записей не найдено)" : sb.ToString();
     }
 }

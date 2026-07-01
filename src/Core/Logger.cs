@@ -44,7 +44,7 @@ public static class Logger
         try
         {
             Directory.CreateDirectory(LogDir);
-            var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{level}] [{Environment.UserName}] {message}";
+            var line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {level,-7}  {"Clinkon1C",-16}  {message}";
             lock (_lock)
                 File.AppendAllText(LogFile, line + Environment.NewLine);
 
