@@ -61,7 +61,7 @@ public class FirewallModule
         foreach (var part in val.Split('|'))
         {
             var idx = part.IndexOf('=');
-            if (idx > 0) dict[part[..idx]] = part[(idx + 1)..];
+            if (idx > 0) dict[part.Substring(0, idx)] = part.Substring(idx + 1);
         }
 
         if (!dict.TryGetValue("Name", out var name)) return null;
