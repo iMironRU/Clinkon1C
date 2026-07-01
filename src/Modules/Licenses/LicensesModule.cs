@@ -50,6 +50,14 @@ public class LicensesModule
         @"C:\Program Files (x86)\1cv8\bin",
     };
 
+    // ── Кэш деталей лицензий ────────────────────────────────────────────────
+    // Ключ: имя лицензии (ring). Значение: путь к .lic, его mtime, распарсенный объект.
+    // Живёт в процессе — при F5 пропускаем ring license info для неизменившихся файлов.
+
+    private record CachedEntry(string FilePath, DateTime Mtime, LicenseEntry Entry);
+    private static readonly Dictionary<string, CachedEntry> _detailsCache
+        = new(StringComparer.OrdinalIgnoreCase);
+
     // ── Загрузка ──────────────────────────────────────────────────────────────
 
     public void Refresh()
@@ -62,6 +70,8 @@ public class LicensesModule
             Logger.Warn($"LicensesModule: list → exit {code}: {output}");
             return;
         }
+
+        int fromCache = 0, scanned = 0;
 
         foreach (var line in output.Split('\n'))
         {
@@ -93,11 +103,43 @@ public class LicensesModule
             if (string.IsNullOrEmpty(name)) continue;
 
             var entry = new LicenseEntry { Name = name, FileName = fileName };
-            FillDetails(entry);
+
+            // Попытка взять детали из кэша по mtime .lic файла
+            var licPath = FindLicFileByName(name, fileName);
+            if (licPath != null)
+            {
+                var mtime = File.GetLastWriteTimeUtc(licPath);
+                if (_detailsCache.TryGetValue(name, out var cached)
+                    && cached.FilePath == licPath
+                    && cached.Mtime   == mtime)
+                {
+                    // Берём из кэша, но создаём копию с актуальным Name/FileName
+                    var ce = cached.Entry;
+                    entry.LicenseType        = ce.LicenseType;
+                    entry.AssociationType    = ce.AssociationType;
+                    entry.GenerationDate     = ce.GenerationDate;
+                    entry.ProductCode        = ce.ProductCode;
+                    entry.RegistrationNumber = ce.RegistrationNumber;
+                    fromCache++;
+                }
+                else
+                {
+                    FillDetails(entry);
+                    _detailsCache[name] = new CachedEntry(licPath, mtime, entry);
+                    scanned++;
+                }
+            }
+            else
+            {
+                // .lic файл не найден — сканируем без кэша (ring info всё равно знает)
+                FillDetails(entry);
+                scanned++;
+            }
+
             _entries.Add(entry);
         }
 
-        Logger.Info($"LicensesModule: {_entries.Count} лицензий загружено");
+        Logger.Info($"LicensesModule: {_entries.Count} лицензий (кэш: {fromCache}, ring info: {scanned})");
     }
 
     private static void FillDetails(LicenseEntry entry)
