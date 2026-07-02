@@ -12,6 +12,7 @@ using Clinkon1C.Modules.Templates;
 using Clinkon1C.Modules.COM;
 using Clinkon1C.Modules.EventLog;
 using Clinkon1C.Modules.Firewall;
+using Clinkon1C.Modules.DT;
 using Clinkon1C.Modules.Journal;
 using Clinkon1C.Modules.SrvInfo;
 using Clinkon1C.Modules.TechLog;
@@ -478,6 +479,15 @@ public class FarApp
                     Description = _techLog.Config.IsEnabled
                         ? TechLogModule.PresetLabel(_techLog.Config.Preset)
                         : "выключен"
+                },
+                new NavItem
+                {
+                    Name        = "DT Backup",
+                    SizeBytes   = 0,
+                    CanEnter    = true,
+                    ModuleId    = "dt",
+                    Paths       = new List<string>(),
+                    Description = "выгрузка/загрузка файловых баз"
                 }
             }
         };
@@ -1186,6 +1196,8 @@ public class FarApp
                     DoSrvInfoView();
                 else if (item.ModuleId == "techlog")
                     DoTechLogView();
+                else if (item.ModuleId == "dt")
+                    DoDtView();
                 break;
 
             case NavLevelKind.CacheRoot:
@@ -2877,6 +2889,156 @@ public class FarApp
             }
             return true;
         });
+    }
+
+    // ── DT Backup / Restore ──────────────────────────────────────────────────
+
+    private void DoDtView()
+    {
+        var fileBases = DtModule.GetFileBases(_bases.Entries);
+
+        (string title, string content) GetInfo()
+        {
+            var sb    = new System.Text.StringBuilder();
+            var title = $"DT Backup/Restore  —  файловых баз: {fileBases.Count}";
+
+            if (fileBases.Count == 0)
+            {
+                sb.AppendLine("  Файловых баз не обнаружено в ibases.v8i.");
+                sb.AppendLine("  DT работает только с File= базами.");
+                return (title, sb.ToString());
+            }
+
+            var exe = DtModule.Find1cv8();
+            sb.AppendLine(exe != null
+                ? $"  1cv8.exe: {exe}"
+                : "  [!] 1cv8.exe не найден — DT операции недоступны");
+            sb.AppendLine();
+
+            for (int i = 0; i < fileBases.Count; i++)
+            {
+                var b      = fileBases[i];
+                var exists = Directory.Exists(b.Path) ? "" : "  [путь не найден]";
+                sb.AppendLine($"  {i + 1,2}. {b.Name}{exists}");
+                sb.AppendLine($"      {b.Path}");
+            }
+            return (title, sb.ToString());
+        }
+
+        ConsoleDialog.ShowTextWithKeys(GetInfo,
+            "[B] Backup (DumpIB)  [R] Restore (RestoreIB)  ↑↓ PgUp/PgDn  Esc",
+            (key, ch) =>
+            {
+                var lower = char.ToLower(ch);
+                if (key == ConsoleKey.B || lower == 'b') { DoDtBackup(fileBases);  return true; }
+                if (key == ConsoleKey.R || lower == 'r') { DoDtRestore(fileBases); return true; }
+                return true;
+            });
+    }
+
+    private static FileBase? PickBase(List<FileBase> bases, string title)
+    {
+        if (bases.Count == 0)
+        {
+            ConsoleDialog.ShowOk("DT", "Файловых баз не найдено.");
+            return null;
+        }
+        if (bases.Count == 1) return bases[0];
+
+        var items   = bases.Select(b => b.Name).ToArray();
+        var selected = ConsoleDialog.MultiSelect(title, items);
+        if (selected.Count == 0) return null;
+        if (selected.Count > 1)
+        {
+            ConsoleDialog.ShowOk("DT", "Выберите ровно одну базу.");
+            return null;
+        }
+        return bases[selected[0]];
+    }
+
+    private static void DoDtBackup(List<FileBase> fileBases)
+    {
+        if (DtModule.Find1cv8() == null)
+        { ConsoleDialog.ShowOk("DT Backup", "1cv8.exe не найден."); return; }
+
+        var b = PickBase(fileBases, "Backup — выберите базу");
+        if (b == null) return;
+
+        var defaults = new Dictionary<string, string>
+        {
+            ["output"] = DtModule.DefaultBackupPath(b.Name),
+            ["user"]   = "",
+            ["pass"]   = "",
+        };
+        var form = ConsoleDialog.Form("DT Backup — параметры",
+            new[]
+            {
+                ("output", "Сохранить в .dt"),
+                ("user",   "Пользователь 1С"),
+                ("pass",   "Пароль"),
+            }, defaults);
+        if (form == null) return;
+
+        var output = form["output"].Trim();
+        if (string.IsNullOrEmpty(output))
+        { ConsoleDialog.ShowOk("Ошибка", "Путь к файлу не задан."); return; }
+
+        string? err = null;
+        ConsoleDialog.ShowProgress($"DT Backup: {b.Name}...", _ =>
+            err = DtModule.Backup(b.Path, output,
+                form["user"].Trim(), form["pass"]));
+
+        if (err == null)
+            ConsoleDialog.ShowOk("DT Backup — готово",
+                $"База: {b.Name}\nФайл: {output}\n\nВыгрузка завершена успешно.");
+        else
+            ConsoleDialog.ShowOk("DT Backup — ошибка", err);
+    }
+
+    private static void DoDtRestore(List<FileBase> fileBases)
+    {
+        if (DtModule.Find1cv8() == null)
+        { ConsoleDialog.ShowOk("DT Restore", "1cv8.exe не найден."); return; }
+
+        var b = PickBase(fileBases, "Restore — выберите базу");
+        if (b == null) return;
+
+        var form = ConsoleDialog.Form("DT Restore — параметры",
+            new[]
+            {
+                ("source", "Путь к .dt файлу"),
+                ("user",   "Пользователь 1С"),
+                ("pass",   "Пароль"),
+            },
+            new Dictionary<string, string> { ["source"] = "", ["user"] = "", ["pass"] = "" });
+        if (form == null) return;
+
+        var source = form["source"].Trim();
+        if (string.IsNullOrEmpty(source))
+        { ConsoleDialog.ShowOk("Ошибка", "Путь к .dt файлу не задан."); return; }
+
+        // Двойное подтверждение — операция необратима
+        if (!ConsoleDialog.Confirm("DT Restore — ВНИМАНИЕ",
+            $"Восстановление ПЕРЕЗАПИШЕТ базу:\n\n  {b.Name}\n  {b.Path}\n\n" +
+            $"Источник: {source}\n\n" +
+            "Все текущие данные будут УНИЧТОЖЕНЫ.",
+            defaultYes: false, yesLabel: "  Да, восстановить  ", noLabel: "  Отмена  "))
+            return;
+
+        if (!ConsoleDialog.ConfirmWord("Подтверждение",
+            $"Введите название базы для подтверждения:\n\n  {b.Name}", b.Name))
+            return;
+
+        string? err = null;
+        ConsoleDialog.ShowProgress($"DT Restore: {b.Name}...", _ =>
+            err = DtModule.Restore(b.Path, source,
+                form["user"].Trim(), form["pass"]));
+
+        if (err == null)
+            ConsoleDialog.ShowOk("DT Restore — готово",
+                $"База: {b.Name}\nВосстановлена из: {source}\n\nЗагрузка завершена успешно.");
+        else
+            ConsoleDialog.ShowOk("DT Restore — ошибка", err);
     }
 
     // ── Технологический журнал ───────────────────────────────────────────────
