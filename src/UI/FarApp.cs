@@ -112,6 +112,12 @@ public class FarApp
     private readonly object _logLock = new object();
     private bool _running = true;
 
+    // ── Правая панель (сводка) ───────────────────────────────────────────────
+    private bool _diagFocus;
+    private int  _diagCursor;
+    private List<(string Text, ConsoleColor Fg, string? Nav)> _diagLines =
+        new List<(string, ConsoleColor, string?)>();
+
     // ── Раскладка экрана ─────────────────────────────────────────────────────
     private static int ItemTop    => 4;              // первая строка items
     private static int ItemBot    => R.H - 6;        // последняя строка items
@@ -1382,15 +1388,60 @@ public class FarApp
             lvl.ScrollTop = lvl.Cursor - ItemH + 1;
     }
 
+    private void MoveDiagCursor(int delta)
+    {
+        int n = _diagLines.Count;
+        if (n == 0) return;
+        _diagCursor = Math.Max(0, Math.Min(n - 1, _diagCursor + delta));
+    }
+
+    private void ToggleDiagFocus()
+    {
+        _diagFocus = !_diagFocus;
+        if (_diagFocus && _diagLines.Count > 0 && _diagCursor == 0)
+        {
+            // Ставим курсор на первую непустую строку
+            while (_diagCursor < _diagLines.Count
+                   && _diagLines[_diagCursor].Text.Trim().Length == 0)
+                _diagCursor++;
+            if (_diagCursor >= _diagLines.Count) _diagCursor = 0;
+        }
+    }
+
+    private void NavigateTo(string moduleId)
+    {
+        if (_nav.Count == 0) return;
+        var lvl = _nav.Peek();
+        if (lvl.Kind != NavLevelKind.Home) return;
+        for (int i = 0; i < lvl.Items.Count; i++)
+        {
+            if (lvl.Items[i].ModuleId == moduleId && lvl.Items[i].CanEnter)
+            {
+                lvl.Cursor = i;
+                _diagFocus = false;
+                Enter();
+                return;
+            }
+        }
+    }
+
     // ── Обработка клавиш ─────────────────────────────────────────────────────
     private void Handle(ConsoleKeyInfo k)
     {
         switch (k.Key)
         {
-            case ConsoleKey.UpArrow:   MoveCursor(-1); break;
-            case ConsoleKey.DownArrow: MoveCursor(+1); break;
-            case ConsoleKey.PageUp:    MoveCursor(-ItemH); break;
-            case ConsoleKey.PageDown:  MoveCursor(+ItemH); break;
+            case ConsoleKey.UpArrow:
+                if (_diagFocus) MoveDiagCursor(-1); else MoveCursor(-1);
+                break;
+            case ConsoleKey.DownArrow:
+                if (_diagFocus) MoveDiagCursor(+1); else MoveCursor(+1);
+                break;
+            case ConsoleKey.PageUp:
+                if (_diagFocus) MoveDiagCursor(-ItemH); else MoveCursor(-ItemH);
+                break;
+            case ConsoleKey.PageDown:
+                if (_diagFocus) MoveDiagCursor(+ItemH); else MoveCursor(+ItemH);
+                break;
 
             case ConsoleKey.Home:
                 var lh = _nav.Peek();
@@ -1404,12 +1455,18 @@ public class FarApp
 
             case ConsoleKey.Enter:
             case ConsoleKey.RightArrow:
-                Enter();
+                if (_diagFocus)
+                {
+                    if (_diagCursor < _diagLines.Count && _diagLines[_diagCursor].Nav != null)
+                        NavigateTo(_diagLines[_diagCursor].Nav!);
+                }
+                else Enter();
                 break;
 
             case ConsoleKey.Backspace:
             case ConsoleKey.LeftArrow:
-                GoUp();
+                if (_diagFocus) { _diagFocus = false; _diagCursor = 0; }
+                else GoUp();
                 break;
 
             case ConsoleKey.Spacebar:
@@ -1417,8 +1474,8 @@ public class FarApp
                 break;
 
             case ConsoleKey.Escape:
-                _sel.Clear();
-                _markedBases.Clear();
+                if (_diagFocus) { _diagFocus = false; _diagCursor = 0; }
+                else { _sel.Clear(); _markedBases.Clear(); }
                 break;
 
             case ConsoleKey.F8:
@@ -1492,7 +1549,10 @@ public class FarApp
                 break;
 
             case ConsoleKey.Tab:
-                ConsoleDialog.ShowLog(() => { lock (_logLock) { return _log.ToArray(); } });
+                if (_nav.Count > 0 && _nav.Peek().Kind == NavLevelKind.Home)
+                    ToggleDiagFocus();
+                else
+                    ConsoleDialog.ShowLog(() => { lock (_logLock) { return _log.ToArray(); } });
                 break;
 
             case ConsoleKey.U when _updateNotice != null && _updateAction != null:
@@ -4075,7 +4135,9 @@ public class FarApp
         R.SplitRow(2, "", R.PanelFg, R.PanelBg, "", R.PanelFg, R.PanelBg);
         R.SplitSep(3);
 
-        var diagLines = BuildDiagLines();
+        _diagLines = BuildDiagLines();
+        if (_diagCursor >= _diagLines.Count)
+            _diagCursor = Math.Max(0, _diagLines.Count - 1);
         const int badgeW = 10; // [xxxxxxxx] — 10 символов
 
         for (int row = ItemTop; row <= ItemBot; row++)
@@ -4088,7 +4150,7 @@ public class FarApp
             if (idx < lvl.Items.Count)
             {
                 var item      = lvl.Items[idx];
-                bool isCursor = idx == lvl.Cursor;
+                bool isCursor = !_diagFocus && idx == lvl.Cursor;
                 string arrow  = item.CanEnter ? "►" : " ";
                 string badge  = HomeBadge(item);             // 10 chars: [xxxxxxxx]
                 int nameAvail = R.LeftInnerW - 3 - badgeW;  // " ► " + badge
@@ -4101,19 +4163,27 @@ public class FarApp
             // ── правая панель: строка диагностики ─────────────────────────
             string rightContent = "";
             ConsoleColor rfg = R.PanelFg;
+            ConsoleColor rbg = R.PanelBg;
             int dIdx = row - ItemTop;
-            if (dIdx < diagLines.Count)
+            if (dIdx < _diagLines.Count)
             {
-                rightContent = diagLines[dIdx].Text;
-                rfg          = diagLines[dIdx].Fg;
+                rightContent = _diagLines[dIdx].Text;
+                rfg          = _diagLines[dIdx].Fg;
+            }
+            if (_diagFocus && dIdx == _diagCursor)
+            {
+                rfg = R.CurFg;
+                rbg = R.CurBg;
             }
 
-            R.SplitRow(row, leftContent, lfg, lbg, rightContent, rfg, R.PanelBg);
+            R.SplitRow(row, leftContent, lfg, lbg, rightContent, rfg, rbg);
         }
 
         R.SplitSep(SepBot);
         R.SplitRow(InfoRow,
-            "  [Enter] Открыть",
+            _diagFocus
+                ? "  ↑↓ Навигация  [Enter] Открыть  [Esc]/[Tab] Назад"
+                : "  [Enter] Открыть  [Tab] Сводка ►",
             R.HdrFg, R.HdrBg,
             "  [F5] Обновить сводку",
             R.HdrFg, R.HdrBg);
@@ -4170,27 +4240,27 @@ public class FarApp
         return ("[" + inner + "]").PadLeft(10);
     }
 
-    private List<(string Text, ConsoleColor Fg)> BuildDiagLines()
+    private List<(string Text, ConsoleColor Fg, string? Nav)> BuildDiagLines()
     {
-        var lines = new List<(string, ConsoleColor)>();
+        var lines = new List<(string, ConsoleColor, string?)>();
         var d = _diagnostics.Data;
 
         if (d.IsScanning)
         {
-            lines.Add(("  Сканирование системы...", ConsoleColor.Gray));
+            lines.Add(("  Сканирование системы...", ConsoleColor.Gray, null));
             return lines;
         }
         if (d.ScanError != null)
         {
-            lines.Add(("  Ошибка: " + d.ScanError, ConsoleColor.Red));
+            lines.Add(("  Ошибка: " + d.ScanError, ConsoleColor.Red, null));
             return lines;
         }
 
         // ── Версии 1С ────────────────────────────────────────────────────
-        lines.Add((" Версии 1С платформы", ConsoleColor.Cyan));
+        lines.Add((" Версии 1С платформы", ConsoleColor.Cyan, "configs"));
         if (d.Versions.Count == 0)
         {
-            lines.Add(("  [ ]  не обнаружено", ConsoleColor.DarkGray));
+            lines.Add(("  [ ]  не обнаружено", ConsoleColor.DarkGray, "configs"));
         }
         else
         {
@@ -4199,7 +4269,7 @@ public class FarApp
             const string FMT = "  {0,-13} {1,-6}{2,-6}{3,-6}{4,-6}{5,-6}{6}";
             static string Chk(bool f) => f ? "[✓]" : "[ ]";
 
-            lines.Add((string.Format(FMT, "Версия", "Серв", "Толст", "Тонк", "COM", "Веб", "ibcmd"), ConsoleColor.Gray));
+            lines.Add((string.Format(FMT, "Версия", "Серв", "Толст", "Тонк", "COM", "Веб", "ibcmd"), ConsoleColor.Gray, "configs"));
             foreach (var v in d.Versions)
             {
                 string com = v.HasCom && v.ComVer != null ? $"[{v.ComVer}]" : "[ ]";
@@ -4208,18 +4278,18 @@ public class FarApp
                     Chk(v.HasServer), Chk(v.HasThick), Chk(v.HasThin),
                     com,
                     Chk(v.HasWeb), Chk(v.HasIbcmd));
-                lines.Add((row, ConsoleColor.White));
+                lines.Add((row, ConsoleColor.White, "configs"));
             }
         }
-        lines.Add(("", R.PanelFg));
+        lines.Add(("", R.PanelFg, null));
 
         // ── Веб-серверы ──────────────────────────────────────────────────
-        lines.Add((" Веб-серверы", ConsoleColor.Cyan));
+        lines.Add((" Веб-серверы", ConsoleColor.Cyan, "web"));
         foreach (var ws in d.WebServers)
         {
             if (!ws.IsInstalled)
             {
-                lines.Add(($"  [ ]  {ws.Name,-14} не установлен", ConsoleColor.DarkGray));
+                lines.Add(($"  [ ]  {ws.Name,-14} не установлен", ConsoleColor.DarkGray, "web"));
             }
             else
             {
@@ -4227,18 +4297,18 @@ public class FarApp
                 string st  = ws.IsRunning ? "работает" : "остановлен";
                 string ind = ws.IsRunning ? "[✓]" : "[■]";
                 ConsoleColor c = ws.IsRunning ? ConsoleColor.Green : ConsoleColor.Yellow;
-                lines.Add(($"  {ind}  {ws.Name + ver,-14} {st}", c));
+                lines.Add(($"  {ind}  {ws.Name + ver,-14} {st}", c, "web"));
             }
         }
-        lines.Add(("", R.PanelFg));
+        lines.Add(("", R.PanelFg, null));
 
         // ── СУБД ─────────────────────────────────────────────────────────
-        lines.Add((" СУБД", ConsoleColor.Cyan));
+        lines.Add((" СУБД", ConsoleColor.Cyan, "srvinfo"));
         foreach (var db in d.Databases)
         {
             if (!db.IsInstalled)
             {
-                lines.Add(($"  [ ]  {db.Name,-20} не установлен", ConsoleColor.DarkGray));
+                lines.Add(($"  [ ]  {db.Name,-20} не установлен", ConsoleColor.DarkGray, "srvinfo"));
             }
             else
             {
@@ -4247,16 +4317,16 @@ public class FarApp
                 string admin = db.HasAdminTool ? "  [SSMS]" : "";
                 string ind   = db.IsRunning ? "[✓]" : "[■]";
                 ConsoleColor c = db.IsRunning ? ConsoleColor.Green : ConsoleColor.Yellow;
-                lines.Add(($"  {ind}  {db.Name + ver,-20} {st}{admin}", c));
+                lines.Add(($"  {ind}  {db.Name + ver,-20} {st}{admin}", c, "srvinfo"));
             }
         }
-        lines.Add(("", R.PanelFg));
+        lines.Add(("", R.PanelFg, null));
 
         // ── Сервисы 1С ───────────────────────────────────────────────────
-        lines.Add((" Сервисы 1С", ConsoleColor.Cyan));
+        lines.Add((" Сервисы 1С", ConsoleColor.Cyan, "agents"));
         if (_agents.Entries.Count == 0)
         {
-            lines.Add(("  [ ]  сервисы не обнаружены", ConsoleColor.DarkGray));
+            lines.Add(("  [ ]  сервисы не обнаружены", ConsoleColor.DarkGray, "agents"));
         }
         else
         {
@@ -4269,24 +4339,24 @@ public class FarApp
                 string name = svc.DisplayName.Length > 28
                     ? svc.DisplayName.Substring(0, 27) + "…"
                     : svc.DisplayName;
-                lines.Add(($"  {ind}  {name,-28} {st}", c));
+                lines.Add(($"  {ind}  {name,-28} {st}", c, "agents"));
             }
         }
-        lines.Add(("", R.PanelFg));
+        lines.Add(("", R.PanelFg, null));
 
         // ── Порты ────────────────────────────────────────────────────────
         if (d.Ports.Count > 0)
         {
-            lines.Add((" Порты", ConsoleColor.Cyan));
+            lines.Add((" Порты", ConsoleColor.Cyan, "firewall"));
             var portLine = new System.Text.StringBuilder("  ");
             foreach (var (port, label, open) in d.Ports)
                 portLine.Append($"[{(open ? "✓" : " ")}] {port}  ");
-            lines.Add((portLine.ToString().TrimEnd(), ConsoleColor.White));
+            lines.Add((portLine.ToString().TrimEnd(), ConsoleColor.White, "firewall"));
         }
 
         // ── Брандмауэр ───────────────────────────────────────────────────
-        lines.Add(("", R.PanelFg));
-        lines.Add((" Брандмауэр — правило «1c»", ConsoleColor.Cyan));
+        lines.Add(("", R.PanelFg, null));
+        lines.Add((" Брандмауэр — правило «1c»", ConsoleColor.Cyan, "firewall"));
         var fwIn  = _firewall.Rules.FirstOrDefault(r =>
             string.Equals(r.Direction, "In",  StringComparison.OrdinalIgnoreCase));
         var fwOut = _firewall.Rules.FirstOrDefault(r =>
@@ -4300,8 +4370,8 @@ public class FarApp
         }
         var fwColor = (fwIn != null && fwIn.Enabled && fwOut != null && fwOut.Enabled)
             ? ConsoleColor.Green : ConsoleColor.Yellow;
-        lines.Add((FwLine("Входящее",   fwIn),  fwIn  == null ? ConsoleColor.DarkGray : fwColor));
-        lines.Add((FwLine("Исходящее",  fwOut), fwOut == null ? ConsoleColor.DarkGray : fwColor));
+        lines.Add((FwLine("Входящее",   fwIn),  fwIn  == null ? ConsoleColor.DarkGray : fwColor, "firewall"));
+        lines.Add((FwLine("Исходящее",  fwOut), fwOut == null ? ConsoleColor.DarkGray : fwColor, "firewall"));
 
         return lines;
     }
@@ -4652,6 +4722,8 @@ public class FarApp
         // Секционные подсказки (только буквенные клавиши, без F-клавиш)
         var left = kind switch
         {
+            NavLevelKind.Home when _diagFocus
+                                       => "[↑↓] Навигация  [Enter] Открыть  [Esc] Назад",
             NavLevelKind.BasesRoot     => "[Пробел] Отметить  [C] Польз.  [E] .v8i",
             NavLevelKind.LicensesRoot  => "[Enter] Инфо  [A] Активация  [V] Проверить",
             NavLevelKind.AgentsRoot    => "[Enter] Инфо  [S] Старт  [T] Стоп  [R] Рестарт  [D] Отладка  [N] Новый",
@@ -4678,7 +4750,9 @@ public class FarApp
         // Фиксированный хвост в порядке F1→F5→F8→Tab(F9)→F10
         const string TF1  = "  [F1] ?";
         const string TF5  = "  [F5] Обновить";
-        const string TTab = "  [Tab] Лог";
+        string TTab = kind == NavLevelKind.Home
+            ? (_diagFocus ? "  [Tab] Меню" : "  [Tab] Сводка")
+            : "  [Tab] Лог";
         const string TF10 = "  [F10] Выход";
         var f8Part = f8State != 0 ? $"  [F8] {f8Label}" : "";
         int tailLen = TF1.Length + TF5.Length + f8Part.Length + TTab.Length + TF10.Length;
