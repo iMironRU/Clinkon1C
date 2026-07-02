@@ -14,6 +14,7 @@ using Clinkon1C.Modules.EventLog;
 using Clinkon1C.Modules.Firewall;
 using Clinkon1C.Modules.Journal;
 using Clinkon1C.Modules.SrvInfo;
+using Clinkon1C.Modules.TechLog;
 using Clinkon1C.Modules.Web;
 
 namespace Clinkon1C.UI;
@@ -92,6 +93,7 @@ public class FarApp
     private readonly FirewallModule     _firewall  = new();
     private readonly EventLogModule     _eventLog  = new();
     private readonly SrvInfoModule      _srvInfo   = new();
+    private readonly TechLogModule     _techLog   = new();
     private List<LogEntry1C>          _fileLog   = new();
     private volatile string?          _updateNotice;
     private readonly Func<string?>?   _updateChecker;
@@ -253,6 +255,7 @@ public class FarApp
             ("Брандмауэр...",   () => _firewall.Refresh()),
             ("EventLog...",         () => _eventLog.Load()),
             ("Журнал операций...",  () => _fileLog = LogFileReader.Read()),
+            ("Тех. журнал...",      () => _techLog.Refresh()),
             ("Кластер 1С...",       () => _srvInfo.Refresh()),
         };
 
@@ -464,6 +467,17 @@ public class FarApp
                     ModuleId    = "srvinfo",
                     Paths       = new List<string>(),
                     Description = "базы, СУБД, ЖР"
+                },
+                new NavItem
+                {
+                    Name        = "Тех. журнал",
+                    SizeBytes   = 0,
+                    CanEnter    = true,
+                    ModuleId    = "techlog",
+                    Paths       = new List<string>(),
+                    Description = _techLog.Config.IsEnabled
+                        ? TechLogModule.PresetLabel(_techLog.Config.Preset)
+                        : "выключен"
                 }
             }
         };
@@ -1170,6 +1184,8 @@ public class FarApp
                     DoJournalView();
                 else if (item.ModuleId == "srvinfo")
                     DoSrvInfoView();
+                else if (item.ModuleId == "techlog")
+                    DoTechLogView();
                 break;
 
             case NavLevelKind.CacheRoot:
@@ -2861,6 +2877,172 @@ public class FarApp
             }
             return true;
         });
+    }
+
+    // ── Технологический журнал ───────────────────────────────────────────────
+
+    private void DoTechLogView()
+    {
+        (string title, string content) GetInfo()
+        {
+            var cfg    = _techLog.Config;
+            var status = cfg.IsEnabled
+                ? $"● ВКЛЮЧЁН — {TechLogModule.PresetLabel(cfg.Preset)}"
+                : "○ ВЫКЛЮЧЕН";
+            var title   = $"Тех. журнал  [{status}]";
+            var content = TechLogModule.FormatStatus(cfg);
+            return (title, content);
+        }
+
+        ConsoleDialog.ShowTextWithKeys(GetInfo,
+            "[C] Настроить  [A] Анализировать  [R] Обновить  Esc",
+            (key, ch) =>
+            {
+                var lower = char.ToLower(ch);
+                if (key == ConsoleKey.C || lower == 'c') { DoTjConfigure(); return true; }
+                if (key == ConsoleKey.A || lower == 'a') { DoTjAnalyze();   return true; }
+                if (key == ConsoleKey.R || lower == 'r')
+                {
+                    ConsoleDialog.ShowProgress("Обновление...", _ => _techLog.Refresh());
+                    return true;
+                }
+                return true;
+            });
+    }
+
+    private void DoTjConfigure()
+    {
+        var configPath = TechLogModule.FindOrCreateConfigPath();
+        if (string.IsNullOrEmpty(configPath))
+        {
+            ConsoleDialog.ShowOk("Тех. журнал", "Установка 1С: Сервер не обнаружена.\nlogcfg.xml не найден.");
+            return;
+        }
+
+        var choice = ConsoleDialog.ShowInfo(
+            "Тех. журнал — Выбор сценария",
+            new[]
+            {
+                "Выберите сценарий записи технологического журнала:",
+                "",
+                "  1. Только ошибки (EXCP)",
+                "  2. Блокировки (TLOCK + TTIMEOUT)",
+                "  3. Долгие запросы к СУБД (DBMSSQL/DBPOSTGRS + Duration > N мс)",
+                "  4. Долгие серверные вызовы (SCALL + Duration > N мс)",
+                "  5. Производительность (ошибки + блокировки + долгие запросы)",
+                "  6. Выключить ТЖ",
+            },
+            "Ошибки", "Блокировки", "Долгие запросы", "Серв.вызовы", "Производит.", "Выключить");
+
+        if (choice < 0) return;
+
+        var presets = new[]
+        {
+            TjPreset.Errors, TjPreset.Locks, TjPreset.SlowDb,
+            TjPreset.SlowCalls, TjPreset.Performance, TjPreset.Disabled,
+        };
+        var preset = presets[choice];
+
+        if (preset == TjPreset.Disabled)
+        {
+            if (!ConsoleDialog.Confirm("Тех. журнал", "Выключить технологический журнал?"))
+                return;
+            ConsoleDialog.ShowProgress("Запись конфига...", _ =>
+            {
+                TechLogModule.WritePreset(TjPreset.Disabled, "", 0, 0, configPath);
+                _techLog.Refresh();
+            });
+            ConsoleDialog.ShowOk("Тех. журнал", "ТЖ выключен. 1С подхватит конфиг автоматически.");
+            return;
+        }
+
+        var cfg = _techLog.Config;
+        var defaults = new System.Collections.Generic.Dictionary<string, string>
+        {
+            ["location"]  = !string.IsNullOrEmpty(cfg.Location) ? cfg.Location : @"C:\Logs\1C\TJ",
+            ["history"]   = cfg.HistoryHours > 0 ? cfg.HistoryHours.ToString() : "24",
+            ["threshold"] = cfg.ThresholdMs  > 0 ? cfg.ThresholdMs.ToString()  : "5000",
+        };
+
+        var form = ConsoleDialog.Form("Тех. журнал — Параметры",
+            new[]
+            {
+                ("location",  "Папка для логов"),
+                ("history",   "История (часов)"),
+                ("threshold", "Порог Duration (мс)"),
+            }, defaults);
+
+        if (form == null) return;
+
+        var location     = form["location"].Trim();
+        int.TryParse(form["history"],   out var historyHours);
+        int.TryParse(form["threshold"], out var thresholdMs);
+        if (historyHours <= 0) historyHours = 24;
+        if (thresholdMs  <= 0) thresholdMs  = 5000;
+
+        if (string.IsNullOrEmpty(location))
+        { ConsoleDialog.ShowOk("Ошибка", "Папка для логов не может быть пустой."); return; }
+
+        ConsoleDialog.ShowProgress("Запись конфига...", _ =>
+        {
+            TechLogModule.WritePreset(preset, location, historyHours, thresholdMs, configPath);
+            _techLog.Refresh();
+        });
+
+        ConsoleDialog.ShowOk("Тех. журнал",
+            $"Конфиг записан: {TechLogModule.PresetLabel(preset)}\n" +
+            $"Логи: {location}   История: {historyHours} ч   Порог: {thresholdMs} мс\n\n" +
+            "1С подхватит конфиг автоматически (перезапуск не требуется).");
+    }
+
+    private void DoTjAnalyze()
+    {
+        var cfg = _techLog.Config;
+
+        if (!cfg.IsEnabled || string.IsNullOrEmpty(cfg.Location))
+        {
+            ConsoleDialog.ShowOk("Тех. журнал", "ТЖ не включён. Нажмите [C] для настройки.");
+            return;
+        }
+
+        if (!Directory.Exists(cfg.Location))
+        {
+            ConsoleDialog.ShowOk("Тех. журнал",
+                $"Папка логов не найдена:\n{cfg.Location}\n\n" +
+                "1С создаст папку при первом срабатывании события.");
+            return;
+        }
+
+        List<TjEvent> events = new();
+        DateTime from = DateTime.Now, to = DateTime.Now;
+        int maxHours = Math.Min(cfg.HistoryHours, 4);
+
+        ConsoleDialog.ShowProgress($"Анализ ТЖ (последние {maxHours} ч)...", _ =>
+        {
+            var result = TechLogParser.Parse(cfg.Location, maxHours);
+            events = result.Events;
+            from   = result.From;
+            to     = result.To;
+        });
+
+        if (events.Count == 0)
+        {
+            ConsoleDialog.ShowOk("Тех. журнал",
+                $"Событий не найдено за последние {maxHours} ч.\n" +
+                "Возможно, события ещё не наступали или папка пуста.");
+            return;
+        }
+
+        (string title, string content) GetInfo()
+        {
+            var title   = $"ТЖ — {TechLogModule.PresetLabel(cfg.Preset)}";
+            var content = TechLogAnalyzer.Format(cfg, events, from, to);
+            return (title, content);
+        }
+
+        ConsoleDialog.ShowTextWithKeys(GetInfo,
+            "↑↓ PgUp/PgDn — скролл  Esc — закрыть",
+            (_, _) => true);
     }
 
     // ── Эмуляторы HASP ───────────────────────────────────────────────────────
