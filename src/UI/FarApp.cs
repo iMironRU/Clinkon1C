@@ -1454,8 +1454,18 @@ public class FarApp
                 break;
 
             case ConsoleKey.Enter:
-            case ConsoleKey.RightArrow:
                 if (_diagFocus)
+                {
+                    if (_diagCursor < _diagLines.Count && _diagLines[_diagCursor].Nav != null)
+                        NavigateTo(_diagLines[_diagCursor].Nav!);
+                }
+                else Enter();
+                break;
+
+            case ConsoleKey.RightArrow:
+                if (!_diagFocus && _nav.Count > 0 && _nav.Peek().Kind == NavLevelKind.Home)
+                    ToggleDiagFocus();
+                else if (_diagFocus)
                 {
                     if (_diagCursor < _diagLines.Count && _diagLines[_diagCursor].Nav != null)
                         NavigateTo(_diagLines[_diagCursor].Nav!);
@@ -1549,10 +1559,7 @@ public class FarApp
                 break;
 
             case ConsoleKey.Tab:
-                if (_nav.Count > 0 && _nav.Peek().Kind == NavLevelKind.Home)
-                    ToggleDiagFocus();
-                else
-                    ConsoleDialog.ShowLog(() => { lock (_logLock) { return _log.ToArray(); } });
+                ConsoleDialog.ShowLog(() => { lock (_logLock) { return _log.ToArray(); } });
                 break;
 
             case ConsoleKey.U when _updateNotice != null && _updateAction != null:
@@ -4182,8 +4189,8 @@ public class FarApp
         R.SplitSep(SepBot);
         R.SplitRow(InfoRow,
             _diagFocus
-                ? "  ↑↓ Навигация  [Enter] Открыть  [Esc]/[Tab] Назад"
-                : "  [Enter] Открыть  [Tab] Сводка ►",
+                ? "  ↑↓ Навигация  [Enter] Открыть  [←]/[Esc] Назад"
+                : "  [Enter] Открыть  [→] Сводка ►",
             R.HdrFg, R.HdrBg,
             "  [F5] Обновить сводку",
             R.HdrFg, R.HdrBg);
@@ -4723,7 +4730,7 @@ public class FarApp
         var left = kind switch
         {
             NavLevelKind.Home when _diagFocus
-                                       => "[↑↓] Навигация  [Enter] Открыть  [Esc] Назад",
+                                       => "[↑↓] Навигация  [Enter] Открыть  [←]/[Esc] Назад",
             NavLevelKind.BasesRoot     => "[Пробел] Отметить  [C] Польз.  [E] .v8i",
             NavLevelKind.LicensesRoot  => "[Enter] Инфо  [A] Активация  [V] Проверить",
             NavLevelKind.AgentsRoot    => "[Enter] Инфо  [S] Старт  [T] Стоп  [R] Рестарт  [D] Отладка  [N] Новый",
@@ -4750,9 +4757,7 @@ public class FarApp
         // Фиксированный хвост в порядке F1→F5→F8→Tab(F9)→F10
         const string TF1  = "  [F1] ?";
         const string TF5  = "  [F5] Обновить";
-        string TTab = kind == NavLevelKind.Home
-            ? (_diagFocus ? "  [Tab] Меню" : "  [Tab] Сводка")
-            : "  [Tab] Лог";
+        const string TTab = "  [Tab] Лог";
         const string TF10 = "  [F10] Выход";
         var f8Part = f8State != 0 ? $"  [F8] {f8Label}" : "";
         int tailLen = TF1.Length + TF5.Length + f8Part.Length + TTab.Length + TF10.Length;
