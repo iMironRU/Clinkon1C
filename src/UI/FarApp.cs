@@ -2713,9 +2713,14 @@ public class FarApp
         }
 
         ConsoleDialog.ShowTextWithKeys(GetInfo,
-            "[R] Обновить  ↑↓ PgUp/PgDn — скролл  Esc — закрыть",
+            "[D] Удалить старые ЖР  [R] Обновить  ↑↓ PgUp/PgDn  Esc",
             (key, ch) =>
             {
+                if (key == ConsoleKey.D || char.ToLower(ch) == 'd')
+                {
+                    DoDeleteOldJr();
+                    return true;
+                }
                 if (key == ConsoleKey.R || char.ToLower(ch) == 'r')
                 {
                     ConsoleDialog.ShowProgress("Сканирование srvinfo...",
@@ -2724,6 +2729,75 @@ public class FarApp
                 }
                 return true;
             });
+    }
+
+    private void DoDeleteOldJr()
+    {
+        // Базы, у которых есть хоть один завершённый период
+        var deletable = _srvInfo.Clusters
+            .SelectMany(c => c.Bases)
+            .Where(b => b.LogPeriods.Any(p => !p.IsCurrent))
+            .ToList();
+
+        if (deletable.Count == 0)
+        {
+            ConsoleDialog.ShowOk("ЖР — удаление", "Нечего удалять — старых периодов не найдено.");
+            return;
+        }
+
+        // Список баз для MultiSelect (все preselected)
+        var items = new string[deletable.Count];
+        for (int i = 0; i < deletable.Count; i++)
+        {
+            var b     = deletable[i];
+            int cnt   = 0;
+            long sz   = 0;
+            foreach (var p in b.LogPeriods)
+            {
+                if (p.IsCurrent) continue;
+                cnt++;
+                sz += p.Size;
+            }
+            items[i] = $"{b.Name,-28}  {cnt} пер.  {SrvInfoModule.FormatSize(sz)}";
+        }
+
+        var presel = new List<int>();
+        for (int i = 0; i < deletable.Count; i++) presel.Add(i);
+        var selected = ConsoleDialog.MultiSelect("Удалить старые периоды ЖР", items, presel);
+        if (selected.Count == 0) return;
+
+        long totalBytes = 0;
+        foreach (var idx in selected)
+            foreach (var p in deletable[idx].LogPeriods)
+                if (!p.IsCurrent) totalBytes += p.Size;
+
+        if (!ConsoleDialog.Confirm("Удаление ЖР",
+            $"Удалить старые периоды у {selected.Count} баз(ы)?\n" +
+            $"Суммарно: {SrvInfoModule.FormatSize(totalBytes)}\n\n" +
+            "Текущий период (1Cv8) не затрагивается."))
+            return;
+
+        int totalPeriods = 0;
+        long totalFreed  = 0;
+        var allErrors    = new List<string>();
+
+        ConsoleDialog.ShowProgress("Удаление журналов регистрации...", _ =>
+        {
+            foreach (var idx in selected)
+            {
+                var r = SrvInfoModule.DeleteOldPeriods(deletable[idx]);
+                totalPeriods += r.Periods;
+                totalFreed   += r.Bytes;
+                allErrors.AddRange(r.Errors);
+            }
+            _srvInfo.Refresh();
+        });
+
+        var msg = $"Удалено периодов: {totalPeriods}\nОсвобождено: {SrvInfoModule.FormatSize(totalFreed)}";
+        if (allErrors.Count > 0)
+            msg += $"\n\nОшибки ({allErrors.Count}):\n" +
+                   string.Join("\n", allErrors.Count <= 5 ? allErrors : allErrors.GetRange(0, 5));
+        ConsoleDialog.ShowOk("ЖР — результат", msg);
     }
 
     // ── Журналы (единый просмотр: лог операций + EventLog 1С) ───────────────

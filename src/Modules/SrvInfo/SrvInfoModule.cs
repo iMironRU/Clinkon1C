@@ -273,7 +273,48 @@ public class SrvInfoModule
         return sb.Length == 0 ? "(кластеров не обнаружено)" : sb.ToString();
     }
 
-    private static string FormatSize(long bytes)
+    // ── Удаление старых периодов ЖР ──────────────────────────────────────────
+
+    public static (int Periods, long Bytes, List<string> Errors) DeleteOldPeriods(BaseEntry b)
+    {
+        int periods = 0;
+        long bytes  = 0;
+        var errors  = new List<string>();
+
+        if (string.IsNullOrEmpty(b.LogDir)) return (0, 0, errors);
+
+        foreach (var p in b.LogPeriods)
+        {
+            if (p.IsCurrent) continue;   // текущий период никогда не трогаем
+
+            var main = Path.Combine(b.LogDir, p.FileName);
+            var lgx  = Path.Combine(b.LogDir, p.FileName + ".lgx");
+            try
+            {
+                if (File.Exists(main))
+                {
+                    bytes += new FileInfo(main).Length;
+                    File.Delete(main);
+                    periods++;
+                    Logger.Info($"SrvInfo: удалён период ЖР {b.Name}\\{p.FileName}");
+                }
+                if (File.Exists(lgx))
+                {
+                    bytes += new FileInfo(lgx).Length;
+                    File.Delete(lgx);
+                }
+            }
+            catch (Exception ex)
+            {
+                var msg = $"{b.Name}\\{p.FileName}: {ex.Message}";
+                errors.Add(msg);
+                Logger.Error($"SrvInfo: ошибка удаления ЖР — {msg}");
+            }
+        }
+        return (periods, bytes, errors);
+    }
+
+    public static string FormatSize(long bytes)
     {
         if (bytes < 1024) return $"{bytes} Б";
         if (bytes < 1024 * 1024) return $"{bytes / 1024} КБ";
