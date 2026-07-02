@@ -12,6 +12,7 @@ using Clinkon1C.Modules.Templates;
 using Clinkon1C.Modules.COM;
 using Clinkon1C.Modules.EventLog;
 using Clinkon1C.Modules.Firewall;
+using Clinkon1C.Modules.SrvInfo;
 using Clinkon1C.Modules.Web;
 
 namespace Clinkon1C.UI;
@@ -89,6 +90,7 @@ public class FarApp
     private readonly ComModule          _com;
     private readonly FirewallModule     _firewall  = new();
     private readonly EventLogModule     _eventLog  = new();
+    private readonly SrvInfoModule      _srvInfo   = new();
     private volatile string?          _updateNotice;
     private readonly Func<string?>?   _updateChecker;
     private readonly Action?          _updateAction;
@@ -248,6 +250,7 @@ public class FarApp
             ("COM...",          () => _com.Scan()),
             ("Брандмауэр...",   () => _firewall.Refresh()),
             ("EventLog...",     () => _eventLog.Load()),
+            ("Кластер 1С...",   () => _srvInfo.Refresh()),
         };
 
         int total = steps.Length;
@@ -449,6 +452,15 @@ public class FarApp
                     ModuleId    = "eventlog",
                     Paths       = new List<string>(),
                     Description = "Windows EventLog / 1C:Enterprise"
+                },
+                new NavItem
+                {
+                    Name        = "Кластер 1С",
+                    SizeBytes   = 0,
+                    CanEnter    = true,
+                    ModuleId    = "srvinfo",
+                    Paths       = new List<string>(),
+                    Description = "базы, СУБД, ЖР"
                 }
             }
         };
@@ -1153,6 +1165,8 @@ public class FarApp
                     DoFirewallInfo();
                 else if (item.ModuleId == "eventlog")
                     DoEventLogInfo();
+                else if (item.ModuleId == "srvinfo")
+                    DoSrvInfoView();
                 break;
 
             case NavLevelKind.CacheRoot:
@@ -2681,6 +2695,32 @@ public class FarApp
                 else R.Invalidate();
             }
         }
+    }
+
+    // ── Кластер 1С / srvinfo ─────────────────────────────────────────────────
+
+    private void DoSrvInfoView()
+    {
+        (string title, string content) GetInfo()
+        {
+            int bases   = _srvInfo.Clusters.Sum(c => c.Bases.Count);
+            var title   = $"Кластер 1С — {_srvInfo.Clusters.Count} кластер(ов), {bases} баз";
+            var content = SrvInfoModule.FormatReport(_srvInfo.Clusters);
+            return (title, content);
+        }
+
+        ConsoleDialog.ShowTextWithKeys(GetInfo,
+            "[R] Обновить  ↑↓ PgUp/PgDn — скролл  Esc — закрыть",
+            (key, ch) =>
+            {
+                if (key == ConsoleKey.R || char.ToLower(ch) == 'r')
+                {
+                    ConsoleDialog.ShowProgress("Сканирование srvinfo...",
+                        _ => _srvInfo.Refresh());
+                    return true;
+                }
+                return true;
+            });
     }
 
     // ── Журнал событий Windows ───────────────────────────────────────────────
