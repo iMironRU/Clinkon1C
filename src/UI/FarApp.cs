@@ -12,6 +12,7 @@ using Clinkon1C.Modules.Templates;
 using Clinkon1C.Modules.COM;
 using Clinkon1C.Modules.EventLog;
 using Clinkon1C.Modules.Firewall;
+using Clinkon1C.Modules.Journal;
 using Clinkon1C.Modules.SrvInfo;
 using Clinkon1C.Modules.Web;
 
@@ -91,6 +92,7 @@ public class FarApp
     private readonly FirewallModule     _firewall  = new();
     private readonly EventLogModule     _eventLog  = new();
     private readonly SrvInfoModule      _srvInfo   = new();
+    private List<LogEntry1C>          _fileLog   = new();
     private volatile string?          _updateNotice;
     private readonly Func<string?>?   _updateChecker;
     private readonly Action?          _updateAction;
@@ -249,8 +251,9 @@ public class FarApp
             ("Диагностика...",  () => _diagnostics.ScanSync()),
             ("COM...",          () => _com.Scan()),
             ("Брандмауэр...",   () => _firewall.Refresh()),
-            ("EventLog...",     () => _eventLog.Load()),
-            ("Кластер 1С...",   () => _srvInfo.Refresh()),
+            ("EventLog...",         () => _eventLog.Load()),
+            ("Журнал операций...",  () => _fileLog = LogFileReader.Read()),
+            ("Кластер 1С...",       () => _srvInfo.Refresh()),
         };
 
         int total = steps.Length;
@@ -446,12 +449,12 @@ public class FarApp
                 },
                 new NavItem
                 {
-                    Name        = "Журнал событий",
+                    Name        = "Журналы",
                     SizeBytes   = 0,
                     CanEnter    = true,
-                    ModuleId    = "eventlog",
+                    ModuleId    = "journals",
                     Paths       = new List<string>(),
-                    Description = "Windows EventLog / 1C:Enterprise"
+                    Description = "лог операций + EventLog 1С"
                 },
                 new NavItem
                 {
@@ -1163,8 +1166,8 @@ public class FarApp
                     EnterCom();
                 else if (item.ModuleId == "firewall")
                     DoFirewallInfo();
-                else if (item.ModuleId == "eventlog")
-                    DoEventLogInfo();
+                else if (item.ModuleId == "journals")
+                    DoJournalView();
                 else if (item.ModuleId == "srvinfo")
                     DoSrvInfoView();
                 break;
@@ -2723,34 +2726,63 @@ public class FarApp
             });
     }
 
-    // ── Журнал событий Windows ───────────────────────────────────────────────
+    // ── Журналы (единый просмотр: лог операций + EventLog 1С) ───────────────
 
-    private void DoEventLogInfo()
+    private void DoJournalView()
     {
-        var filter = EventLogFilter.ErrorsWarnings;
+        // 0 = все, 1 = только лог Clinkon1C, 2 = только EventLog 1С
+        int source = 0;
+        var filter = EventLogFilter.All;
 
         (string title, string content) GetInfo()
         {
-            var visible  = EventLogModule.Apply(_eventLog.Entries, filter).ToList();
-            var fLabel   = EventLogModule.FilterLabel(filter);
-            var title    = $"Журнал событий 1С  [{fLabel}]  — {visible.Count} записей";
-            var content  = EventLogModule.FormatEntries(visible);
+            List<LogEntry1C> pool;
+            if (source == 1)
+                pool = _fileLog;
+            else if (source == 2)
+                pool = _eventLog.Entries;
+            else
+            {
+                // Все — объединяем и сортируем от новых к старым
+                pool = new List<LogEntry1C>(_fileLog.Count + _eventLog.Entries.Count);
+                pool.AddRange(_fileLog);
+                pool.AddRange(_eventLog.Entries);
+                pool.Sort((a, b) => b.TimeGenerated.CompareTo(a.TimeGenerated));
+            }
+
+            var visible = EventLogModule.Apply(pool, filter).ToList();
+            var srcLabel = source switch
+            {
+                1 => "[1] Clinkon1C",
+                2 => "[2] EventLog 1С",
+                _ => "[A] все",
+            };
+            var fLabel  = EventLogModule.FilterLabel(filter);
+            var title   = $"Журналы {srcLabel}  [{fLabel}]  — {visible.Count} записей";
+            var content = EventLogModule.FormatEntries(visible);
             return (title, content);
         }
 
-        string hint = "[F] Фильтр  [R] Обновить  ↑↓ PgUp/PgDn — скролл  Esc — закрыть";
+        const string hint = "[1]/[2]/[A] Источник  [F] Фильтр  [R] Обновить  ↑↓ PgUp/PgDn  Esc";
 
         ConsoleDialog.ShowTextWithKeys(GetInfo, hint, (key, ch) =>
         {
-            if (key == ConsoleKey.F || char.ToLower(ch) == 'f')
+            var lower = char.ToLower(ch);
+            if (key == ConsoleKey.D1 || lower == '1') { source = 1; return true; }
+            if (key == ConsoleKey.D2 || lower == '2') { source = 2; return true; }
+            if (key == ConsoleKey.A  || lower == 'a') { source = 0; return true; }
+            if (key == ConsoleKey.F  || lower == 'f')
             {
                 filter = EventLogModule.NextFilter(filter);
                 return true;
             }
-            if (key == ConsoleKey.R || char.ToLower(ch) == 'r')
+            if (key == ConsoleKey.R || lower == 'r')
             {
-                ConsoleDialog.ShowProgress("Загрузка событий...",
-                    _ => _eventLog.Load(EventLogModule.DefaultMax));
+                ConsoleDialog.ShowProgress("Обновление журналов...", _ =>
+                {
+                    _fileLog = LogFileReader.Read();
+                    _eventLog.Load(EventLogModule.DefaultMax);
+                });
                 return true;
             }
             return true;
