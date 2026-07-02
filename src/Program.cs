@@ -159,7 +159,17 @@ class Program
                 try { var u = CheckForUpdate(); return u != null ? $"v{u.Version}" : null; }
                 catch { return null; }
             }
-            new FarApp(cache, templates, bases, licenses, agents, processes, web, emulators, configs, diagnostics, com, updateNotice, CheckSilent).Run();
+            static void DoUpdate()
+            {
+                try
+                {
+                    var upd = CheckForUpdate();
+                    if (upd != null && ConsoleDialog.ShowUpdateDialog(FullVersion, upd.Version))
+                        SelfUpdate(upd);
+                }
+                catch { }
+            }
+            new FarApp(cache, templates, bases, licenses, agents, processes, web, emulators, configs, diagnostics, com, updateNotice, CheckSilent, DoUpdate).Run();
         }
         finally
         {

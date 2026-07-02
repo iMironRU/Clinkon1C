@@ -91,6 +91,7 @@ public class FarApp
     private readonly EventLogModule     _eventLog  = new();
     private volatile string?          _updateNotice;
     private readonly Func<string?>?   _updateChecker;
+    private readonly Action?          _updateAction;
 
     // Отмеченные базы (по Connect= строке как ключу)
     private readonly HashSet<string> _markedBases =
@@ -123,7 +124,8 @@ public class FarApp
                   WebModule web, EmulatorModule emulators, ConfigsModule configs,
                   DiagnosticsModule diagnostics, ComModule com,
                   string? updateNotice = null,
-                  Func<string?>? updateChecker = null)
+                  Func<string?>? updateChecker = null,
+                  Action? updateAction = null)
     {
         _cache          = cache;
         _templates      = templates;
@@ -138,6 +140,7 @@ public class FarApp
         _com            = com;
         _updateNotice   = updateNotice;
         _updateChecker  = updateChecker;
+        _updateAction   = updateAction;
         Logger.MessageLogged += OnLog;
     }
 
@@ -1445,6 +1448,10 @@ public class FarApp
 
             case ConsoleKey.Tab:
                 ConsoleDialog.ShowLog(() => { lock (_logLock) { return _log.ToArray(); } });
+                break;
+
+            case ConsoleKey.U when _updateNotice != null && _updateAction != null:
+                _updateAction();
                 break;
 
             default:
@@ -3815,7 +3822,7 @@ public class FarApp
         R.Put(0, 0, $" Clinkon1C {Program.FullVersion}  │  {RepoUrl}", R.HdrFg, R.HdrBg);
         if (!string.IsNullOrEmpty(_updateNotice))
         {
-            var n = $" ★ {_updateNotice} ";
+            var n = $" ★ {_updateNotice} — [U] обновить ";
             R.Put(R.W - n.Length, 0, n, ConsoleColor.Green, R.HdrBg);
         }
     }
