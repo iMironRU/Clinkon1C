@@ -3697,15 +3697,20 @@ public class FarApp
         }
         else
         {
-            const int VW = 13, CW = 6;
-            string Col(string txt) => txt.PadRight(CW);
-            string Chk(bool f)     => Col(f ? "[✓]" : "[ ]");
+            // Единый форматный шаблон — заголовок и строки данных используют одну строку форматирования.
+            // CW=6 покрывает самые длинные значения: "Толст"=5, "[V83]"=5, "ibcmd"=5.
+            const string FMT = "  {0,-13} {1,-6}{2,-6}{3,-6}{4,-6}{5,-6}{6}";
+            static string Chk(bool f) => f ? "[✓]" : "[ ]";
 
-            lines.Add(($"  {"Версия",-VW} {Col("Серв")}{Col("Толст")}{Col("Тонк")}{Col("COM")}{Col("Веб")}{Col("ibcmd")}", ConsoleColor.Gray));
+            lines.Add((string.Format(FMT, "Версия", "Серв", "Толст", "Тонк", "COM", "Веб", "ibcmd"), ConsoleColor.Gray));
             foreach (var v in d.Versions)
             {
-                string com = Col(v.HasCom && v.ComVer != null ? $"[{v.ComVer}]" : "[ ]");
-                string row = $"  {v.Version,-VW} {Chk(v.HasServer)}{Chk(v.HasThick)}{Chk(v.HasThin)}{com}{Chk(v.HasWeb)}{Chk(v.HasIbcmd)}";
+                string com = v.HasCom && v.ComVer != null ? $"[{v.ComVer}]" : "[ ]";
+                string row = string.Format(FMT,
+                    v.Version,
+                    Chk(v.HasServer), Chk(v.HasThick), Chk(v.HasThin),
+                    com,
+                    Chk(v.HasWeb), Chk(v.HasIbcmd));
                 lines.Add((row, ConsoleColor.White));
             }
         }
