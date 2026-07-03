@@ -51,11 +51,11 @@ public class LicensesModule
     };
 
     // ── Кэш деталей лицензий ────────────────────────────────────────────────
-    // Ключ: имя лицензии (ring). Значение: путь к .lic, его mtime, распарсенный объект.
-    // Живёт в процессе — при F5 пропускаем ring license info для неизменившихся файлов.
+    // Ключ: имя лицензии (ring license list). Живёт всё время процесса.
+    // Инвалидируется только для имён, которых не было в прошлом вызове (новые лицензии).
+    // ring license info вызывается ровно один раз на лицензию за время жизни процесса.
 
-    private record CachedEntry(string FilePath, DateTime Mtime, LicenseEntry Entry);
-    private static readonly Dictionary<string, CachedEntry> _detailsCache
+    private static readonly Dictionary<string, LicenseEntry> _detailsCache
         = new(StringComparer.OrdinalIgnoreCase);
 
     // ── Загрузка ──────────────────────────────────────────────────────────────
@@ -102,41 +102,21 @@ public class LicensesModule
 
             if (string.IsNullOrEmpty(name)) continue;
 
-            var entry = new LicenseEntry { Name = name, FileName = fileName };
-
-            // Попытка взять детали из кэша по mtime .lic файла
-            var licPath = FindLicFileByName(name, fileName);
-            if (licPath != null)
+            // Берём детали из кэша — ring license info вызывается ровно раз за процесс
+            if (_detailsCache.TryGetValue(name, out var cached))
             {
-                var mtime = File.GetLastWriteTimeUtc(licPath);
-                if (_detailsCache.TryGetValue(name, out var cached)
-                    && cached.FilePath == licPath
-                    && cached.Mtime   == mtime)
-                {
-                    // Берём из кэша, но создаём копию с актуальным Name/FileName
-                    var ce = cached.Entry;
-                    entry.LicenseType        = ce.LicenseType;
-                    entry.AssociationType    = ce.AssociationType;
-                    entry.GenerationDate     = ce.GenerationDate;
-                    entry.ProductCode        = ce.ProductCode;
-                    entry.RegistrationNumber = ce.RegistrationNumber;
-                    fromCache++;
-                }
-                else
-                {
-                    FillDetails(entry);
-                    _detailsCache[name] = new CachedEntry(licPath, mtime, entry);
-                    scanned++;
-                }
+                cached.FileName = fileName; // имя файла могло обновиться
+                _entries.Add(cached);
+                fromCache++;
             }
             else
             {
-                // .lic файл не найден — сканируем без кэша (ring info всё равно знает)
+                var entry = new LicenseEntry { Name = name, FileName = fileName };
                 FillDetails(entry);
+                _detailsCache[name] = entry;
+                _entries.Add(entry);
                 scanned++;
             }
-
-            _entries.Add(entry);
         }
 
         Logger.Info($"LicensesModule: {_entries.Count} лицензий (кэш: {fromCache}, ring info: {scanned})");
