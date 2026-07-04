@@ -24,7 +24,7 @@ namespace Clinkon1C.UI;
 
 internal enum NavLevelKind
 {
-    Home,            // главный экран: Кэш / Шаблоны
+    Home,            // главный экран: группы верхнего уровня
     CacheRoot,       // список пользователей или баз
     CacheUser,       // базы внутри пользователя
     CacheUnknown,    // неизвестные папки
@@ -39,7 +39,13 @@ internal enum NavLevelKind
     WebRoot,         // список веб-публикаций 1С (Apache)
     EmulatorsRoot,   // аудит эмуляторов HASP
     ConfigsRoot,     // конфигурационные файлы платформы
-    ComRoot          // COM-коннектор 1С
+    ComRoot,         // COM-коннектор 1С
+    // ── Группы иерархического меню (вариант Б) ──────────────────────────────
+    GroupBases1C,    // Кэш, Шаблоны, Базы, DT Backup
+    GroupServer1C,   // Кластер 1С, Агенты, Веб
+    GroupLicensing,  // Лицензии, Эмуляторы HASP
+    GroupInfra,      // Процессы, COM, Конфиги платформы, Брандмауэр
+    GroupJournals    // Журналы, Тех. журнал
 }
 
 internal class NavItem
@@ -329,6 +335,7 @@ public class FarApp
         // Восстанавливаем навигацию
         _nav.Clear();
         _nav.Push(MakeHomeLevel());
+        _nav.Push(MakeGroupBases1CLevel());
         _nav.Push(MakeCacheLevel());
 
         if (savedUser != null &&
@@ -349,11 +356,6 @@ public class FarApp
     {
         long total = _cache.TotalSize + _templates.TotalSize;
 
-        var cachePaths = _cache.Entries
-            .SelectMany(e => e.Paths.Select(p => p.Path)).ToList();
-        var tmplPaths = _templates.Entries
-            .Select(e => e.Path).ToList();
-
         return new NavLevel
         {
             Kind  = NavLevelKind.Home,
@@ -362,141 +364,214 @@ public class FarApp
             {
                 new NavItem
                 {
-                    Name     = "Кэш",
-                    SizeBytes = _cache.TotalSize,
-                    CanEnter = true,
-                    ModuleId = "cache",
-                    Paths    = cachePaths
-                },
-                new NavItem
-                {
-                    Name      = "Шаблоны",
-                    SizeBytes = _templates.TotalSize,
-                    CanEnter  = _templates.Entries.Count > 0,
-                    ModuleId  = "templates",
-                    Paths     = tmplPaths
-                },
-                new NavItem
-                {
-                    Name        = "Базы",
-                    SizeBytes   = 0,
+                    Name        = "Базы 1С",
                     CanEnter    = true,
-                    ModuleId    = "bases",
-                    Paths       = new List<string>(),
-                    Description = $"{_bases.Entries.Count} записей"
+                    ModuleId    = "group_bases1c",
+                    ShowDescCol = true,
+                    Description = "Кэш, Шаблоны, Базы, DT Backup"
                 },
                 new NavItem
                 {
-                    Name        = "Лицензии",
-                    SizeBytes   = 0,
+                    Name        = "Сервер 1С",
                     CanEnter    = true,
-                    ModuleId    = "licenses",
-                    Paths       = new List<string>(),
-                    Description = "ring license"
+                    ModuleId    = "group_server1c",
+                    ShowDescCol = true,
+                    Description = "Кластер 1С, Агенты, Веб"
                 },
                 new NavItem
                 {
-                    Name        = "Агенты",
-                    SizeBytes   = 0,
+                    Name        = "Лицензирование",
                     CanEnter    = true,
-                    ModuleId    = "agents",
-                    Paths       = new List<string>(),
-                    Description = "ragent.exe"
+                    ModuleId    = "group_licensing",
+                    ShowDescCol = true,
+                    Description = "Лицензии, Эмуляторы HASP"
                 },
                 new NavItem
                 {
-                    Name        = "Процессы",
-                    SizeBytes   = 0,
+                    Name        = "Инфраструктура",
                     CanEnter    = true,
-                    ModuleId    = "processes",
-                    Paths       = new List<string>(),
-                    Description = "1С клиенты"
-                },
-                new NavItem
-                {
-                    Name        = "Веб",
-                    SizeBytes   = 0,
-                    CanEnter    = true,
-                    ModuleId    = "web",
-                    Paths       = new List<string>(),
-                    Description = "Apache / публикации"
-                },
-                new NavItem
-                {
-                    Name        = "Эмуляторы HASP",
-                    SizeBytes   = 0,
-                    CanEnter    = true,
-                    ModuleId    = "emulators",
-                    Paths       = new List<string>(),
-                    Description = "аудит лицензий"
-                },
-                new NavItem
-                {
-                    Name        = "Конфиги платформы",
-                    SizeBytes   = 0,
-                    CanEnter    = true,
-                    ModuleId    = "configs",
-                    Paths       = new List<string>(),
-                    Description = "conf.cfg, logcfg.xml ..."
-                },
-                new NavItem
-                {
-                    Name        = "COM Коннектор",
-                    SizeBytes   = 0,
-                    CanEnter    = true,
-                    ModuleId    = "com",
-                    Paths       = new List<string>(),
-                    Description = "comcntr.dll / COM+"
-                },
-                new NavItem
-                {
-                    Name        = "Брандмауэр",
-                    SizeBytes   = 0,
-                    CanEnter    = true,
-                    ModuleId    = "firewall",
-                    Paths       = new List<string>(),
-                    Description = "порты 1С (1540–1591)"
+                    ModuleId    = "group_infra",
+                    ShowDescCol = true,
+                    Description = "Процессы, COM, Конфиги, Брандмауэр"
                 },
                 new NavItem
                 {
                     Name        = "Журналы",
-                    SizeBytes   = 0,
                     CanEnter    = true,
-                    ModuleId    = "journals",
-                    Paths       = new List<string>(),
-                    Description = "лог операций + EventLog 1С"
-                },
-                new NavItem
-                {
-                    Name        = "Кластер 1С",
-                    SizeBytes   = 0,
-                    CanEnter    = true,
-                    ModuleId    = "srvinfo",
-                    Paths       = new List<string>(),
-                    Description = "базы, СУБД, ЖР"
-                },
-                new NavItem
-                {
-                    Name        = "Тех. журнал",
-                    SizeBytes   = 0,
-                    CanEnter    = true,
-                    ModuleId    = "techlog",
-                    Paths       = new List<string>(),
-                    Description = _techLog.Config.IsEnabled
-                        ? TechLogModule.PresetLabel(_techLog.Config.Preset)
-                        : "выключен"
-                },
-                new NavItem
-                {
-                    Name        = "DT Backup",
-                    SizeBytes   = 0,
-                    CanEnter    = true,
-                    ModuleId    = "dt",
-                    Paths       = new List<string>(),
-                    Description = "выгрузка/загрузка файловых баз"
+                    ModuleId    = "group_journals",
+                    ShowDescCol = true,
+                    Description = "Clinkon1C, EventLog 1С, Тех. журнал"
                 }
             }
         };
+    }
+
+    // ── Группы иерархического меню ──────────────────────────────────────────
+
+    private NavLevel MakeGroupBases1CLevel()
+    {
+        var cachePaths = _cache.Entries
+            .SelectMany(e => e.Paths.Select(p => p.Path)).ToList();
+        var tmplPaths = _templates.Entries
+            .Select(e => e.Path).ToList();
+
+        var items = new List<NavItem> { UpItem() };
+        items.Add(new NavItem
+        {
+            Name        = "Кэш",
+            SizeBytes   = _cache.TotalSize,
+            CanEnter    = true,
+            ModuleId    = "cache",
+            Paths       = cachePaths,
+            ShowDescCol = true,
+            Description = SafeDelete.FormatSize(_cache.TotalSize)
+        });
+        items.Add(new NavItem
+        {
+            Name        = "Шаблоны",
+            SizeBytes   = _templates.TotalSize,
+            CanEnter    = _templates.Entries.Count > 0,
+            ModuleId    = "templates",
+            Paths       = tmplPaths,
+            ShowDescCol = true,
+            Description = SafeDelete.FormatSize(_templates.TotalSize)
+        });
+        items.Add(new NavItem
+        {
+            Name        = "Базы",
+            CanEnter    = true,
+            ModuleId    = "bases",
+            ShowDescCol = true,
+            Description = $"{_bases.Entries.Count} записей"
+        });
+        items.Add(new NavItem
+        {
+            Name        = "DT Backup",
+            CanEnter    = true,
+            ModuleId    = "dt",
+            ShowDescCol = true,
+            Description = "выгрузка/загрузка файловых баз"
+        });
+
+        return new NavLevel { Kind = NavLevelKind.GroupBases1C, Title = "Базы 1С", Items = items };
+    }
+
+    private NavLevel MakeGroupServer1CLevel()
+    {
+        var items = new List<NavItem> { UpItem() };
+        items.Add(new NavItem
+        {
+            Name        = "Кластер 1С",
+            CanEnter    = true,
+            ModuleId    = "srvinfo",
+            ShowDescCol = true,
+            Description = "базы, СУБД, ЖР"
+        });
+        items.Add(new NavItem
+        {
+            Name        = "Агенты",
+            CanEnter    = true,
+            ModuleId    = "agents",
+            ShowDescCol = true,
+            Description = "ragent.exe"
+        });
+        items.Add(new NavItem
+        {
+            Name        = "Веб",
+            CanEnter    = true,
+            ModuleId    = "web",
+            ShowDescCol = true,
+            Description = "Apache / публикации"
+        });
+
+        return new NavLevel { Kind = NavLevelKind.GroupServer1C, Title = "Сервер 1С", Items = items };
+    }
+
+    private NavLevel MakeGroupLicensingLevel()
+    {
+        var items = new List<NavItem> { UpItem() };
+        items.Add(new NavItem
+        {
+            Name        = "Лицензии",
+            CanEnter    = true,
+            ModuleId    = "licenses",
+            ShowDescCol = true,
+            Description = "ring license"
+        });
+        items.Add(new NavItem
+        {
+            Name        = "Эмуляторы HASP",
+            CanEnter    = true,
+            ModuleId    = "emulators",
+            ShowDescCol = true,
+            Description = "аудит лицензий"
+        });
+
+        return new NavLevel { Kind = NavLevelKind.GroupLicensing, Title = "Лицензирование", Items = items };
+    }
+
+    private NavLevel MakeGroupInfraLevel()
+    {
+        var items = new List<NavItem> { UpItem() };
+        items.Add(new NavItem
+        {
+            Name        = "Процессы",
+            CanEnter    = true,
+            ModuleId    = "processes",
+            ShowDescCol = true,
+            Description = "1С клиенты"
+        });
+        items.Add(new NavItem
+        {
+            Name        = "COM Коннектор",
+            CanEnter    = true,
+            ModuleId    = "com",
+            ShowDescCol = true,
+            Description = "comcntr.dll / COM+"
+        });
+        items.Add(new NavItem
+        {
+            Name        = "Конфиги платформы",
+            CanEnter    = true,
+            ModuleId    = "configs",
+            ShowDescCol = true,
+            Description = "conf.cfg, logcfg.xml ..."
+        });
+        items.Add(new NavItem
+        {
+            Name        = "Брандмауэр",
+            CanEnter    = true,
+            ModuleId    = "firewall",
+            ShowDescCol = true,
+            Description = "порты 1С (1540–1591)"
+        });
+
+        return new NavLevel { Kind = NavLevelKind.GroupInfra, Title = "Инфраструктура", Items = items };
+    }
+
+    private NavLevel MakeGroupJournalsLevel()
+    {
+        var items = new List<NavItem> { UpItem() };
+        items.Add(new NavItem
+        {
+            Name        = "Журналы",
+            CanEnter    = true,
+            ModuleId    = "journals",
+            ShowDescCol = true,
+            Description = "лог операций + EventLog 1С"
+        });
+        items.Add(new NavItem
+        {
+            Name        = "Тех. журнал",
+            CanEnter    = true,
+            ModuleId    = "techlog",
+            ShowDescCol = true,
+            Description = _techLog.Config.IsEnabled
+                ? TechLogModule.PresetLabel(_techLog.Config.Preset)
+                : "выключен"
+        });
+
+        return new NavLevel { Kind = NavLevelKind.GroupJournals, Title = "Журналы", Items = items };
     }
 
     private NavLevel MakeCacheLevel()
@@ -1174,36 +1249,24 @@ public class FarApp
         switch (lvl.Kind)
         {
             case NavLevelKind.Home:
-                if (item.ModuleId == "cache")
-                    _nav.Push(MakeCacheLevel());
-                else if (item.ModuleId == "templates")
-                    _nav.Push(MakeTemplatesLevel());
-                else if (item.ModuleId == "bases")
-                    _nav.Push(MakeBasesLevel());
-                else if (item.ModuleId == "licenses")
-                    EnterLicenses();
-                else if (item.ModuleId == "agents")
-                    EnterAgents();
-                else if (item.ModuleId == "processes")
-                    EnterProcesses();
-                else if (item.ModuleId == "web")
-                    EnterWeb();
-                else if (item.ModuleId == "emulators")
-                    EnterEmulators();
-                else if (item.ModuleId == "configs")
-                    EnterConfigs();
-                else if (item.ModuleId == "com")
-                    EnterCom();
-                else if (item.ModuleId == "firewall")
-                    DoFirewallInfo();
-                else if (item.ModuleId == "journals")
-                    DoJournalView();
-                else if (item.ModuleId == "srvinfo")
-                    DoSrvInfoView();
-                else if (item.ModuleId == "techlog")
-                    DoTechLogView();
-                else if (item.ModuleId == "dt")
-                    DoDtView();
+                if (item.ModuleId == "group_bases1c")
+                    _nav.Push(MakeGroupBases1CLevel());
+                else if (item.ModuleId == "group_server1c")
+                    _nav.Push(MakeGroupServer1CLevel());
+                else if (item.ModuleId == "group_licensing")
+                    _nav.Push(MakeGroupLicensingLevel());
+                else if (item.ModuleId == "group_infra")
+                    _nav.Push(MakeGroupInfraLevel());
+                else if (item.ModuleId == "group_journals")
+                    _nav.Push(MakeGroupJournalsLevel());
+                break;
+
+            case NavLevelKind.GroupBases1C:
+            case NavLevelKind.GroupServer1C:
+            case NavLevelKind.GroupLicensing:
+            case NavLevelKind.GroupInfra:
+            case NavLevelKind.GroupJournals:
+                EnterHomeModule(item);
                 break;
 
             case NavLevelKind.CacheRoot:
@@ -1291,6 +1354,41 @@ public class FarApp
         }
     }
 
+    /// <summary>Диспетчер входа в модуль по ModuleId — вызывается из всех групп меню.</summary>
+    private void EnterHomeModule(NavItem item)
+    {
+        if (item.ModuleId == "cache")
+            _nav.Push(MakeCacheLevel());
+        else if (item.ModuleId == "templates")
+            _nav.Push(MakeTemplatesLevel());
+        else if (item.ModuleId == "bases")
+            _nav.Push(MakeBasesLevel());
+        else if (item.ModuleId == "licenses")
+            EnterLicenses();
+        else if (item.ModuleId == "agents")
+            EnterAgents();
+        else if (item.ModuleId == "processes")
+            EnterProcesses();
+        else if (item.ModuleId == "web")
+            EnterWeb();
+        else if (item.ModuleId == "emulators")
+            EnterEmulators();
+        else if (item.ModuleId == "configs")
+            EnterConfigs();
+        else if (item.ModuleId == "com")
+            EnterCom();
+        else if (item.ModuleId == "firewall")
+            DoFirewallInfo();
+        else if (item.ModuleId == "journals")
+            DoJournalView();
+        else if (item.ModuleId == "srvinfo")
+            DoSrvInfoView();
+        else if (item.ModuleId == "techlog")
+            DoTechLogView();
+        else if (item.ModuleId == "dt")
+            DoDtView();
+    }
+
     private void GoUp()
     {
         if (_nav.Count > 1) _nav.Pop();
@@ -1331,6 +1429,11 @@ public class FarApp
                     rebuilt = MakeTemplatesGroupLevel(
                         cur.ContextPath, Path.GetFileName(cur.ContextPath) ?? cur.Title);
                 break;
+            case NavLevelKind.GroupBases1C:    rebuilt = MakeGroupBases1CLevel();   break;
+            case NavLevelKind.GroupServer1C:   rebuilt = MakeGroupServer1CLevel();  break;
+            case NavLevelKind.GroupLicensing:  rebuilt = MakeGroupLicensingLevel(); break;
+            case NavLevelKind.GroupInfra:      rebuilt = MakeGroupInfraLevel();     break;
+            case NavLevelKind.GroupJournals:   rebuilt = MakeGroupJournalsLevel();  break;
         }
 
         if (rebuilt == null) return;
@@ -1408,20 +1511,37 @@ public class FarApp
         }
     }
 
+    // Drill-down из правой панели (Сводка) — moduleId (напр. "web") лежит внутри группы,
+    // а не прямо в Home. Ищем группу, содержащую нужный модуль, входим в неё и открываем модуль.
     private void NavigateTo(string moduleId)
     {
         if (_nav.Count == 0) return;
         var lvl = _nav.Peek();
         if (lvl.Kind != NavLevelKind.Home) return;
-        for (int i = 0; i < lvl.Items.Count; i++)
+
+        (string GroupModuleId, Func<NavLevel> Make)[] groups =
         {
-            if (lvl.Items[i].ModuleId == moduleId && lvl.Items[i].CanEnter)
-            {
-                lvl.Cursor = i;
-                _diagFocus = false;
-                Enter();
-                return;
-            }
+            ("group_bases1c",   MakeGroupBases1CLevel),
+            ("group_server1c",  MakeGroupServer1CLevel),
+            ("group_licensing", MakeGroupLicensingLevel),
+            ("group_infra",     MakeGroupInfraLevel),
+            ("group_journals",  MakeGroupJournalsLevel),
+        };
+
+        foreach (var (groupId, make) in groups)
+        {
+            var group = make();
+            int idx = group.Items.FindIndex(i => i.ModuleId == moduleId && i.CanEnter);
+            if (idx < 0) continue;
+
+            int homeIdx = lvl.Items.FindIndex(i => i.ModuleId == groupId);
+            if (homeIdx >= 0) lvl.Cursor = homeIdx;
+
+            group.Cursor = idx;
+            _nav.Push(group);
+            _diagFocus  = false;
+            Enter();
+            return;
         }
     }
 
@@ -4206,43 +4326,27 @@ public class FarApp
         R.Flush();
     }
 
+    // Home теперь показывает 5 групп верхнего уровня — бейдж агрегирует самую значимую
+    // метрику внутри группы (размер кэша, число запущенных агентов, найденные эмуляторы...).
     private string HomeBadge(NavItem item)
     {
         string inner;
         switch (item.ModuleId)
         {
-            case "cache":
-            case "templates":
-                inner = item.SizeBytes > 0 ? SafeDelete.FormatSize(item.SizeBytes) : "0 Б";
+            case "group_bases1c":
+                long basesSize = _cache.TotalSize + _templates.TotalSize;
+                inner = basesSize > 0 ? SafeDelete.FormatSize(basesSize) : "0 Б";
                 break;
-            case "bases":
-                inner = _bases.Entries.Count.ToString();
-                break;
-            case "licenses":
-                inner = _licenses.Entries.Count > 0 ? "✓" : " ";
-                break;
-            case "agents":
+            case "group_server1c":
                 int runAgents = _agents.Entries.Count(a => a.Status == "Running");
-                inner = runAgents > 0 ? $"▶ {runAgents}"
-                      : (_agents.Entries.Count > 0 ? "■" : " ");
+                inner = runAgents > 0 ? $"▶ {runAgents}" : " ";
                 break;
-            case "processes":
-                inner = _processes.Entries.Count > 0
-                    ? _processes.Entries.Count.ToString() : " ";
-                break;
-            case "web":
-                inner = _web.Entries.Count > 0 ? "✓" : " ";
-                break;
-            case "emulators":
+            case "group_licensing":
                 int eFound = _emulators.Found.Count;
-                inner = eFound > 0 ? $"! {eFound}" : "✓";
+                inner = eFound > 0 ? $"! {eFound}"
+                      : (_licenses.Entries.Count > 0 ? "✓" : " ");
                 break;
-            case "configs":
-                int cfFound = _configs.Files.Count(f => f.Found);
-                int cfTotal = _configs.Files.Count;
-                inner = $"{cfFound}/{cfTotal}";
-                break;
-            case "com":
+            case "group_infra":
                 int comReg = _com.Registered.Count;
                 inner = comReg > 0 ? comReg.ToString() : " ";
                 break;
@@ -4416,6 +4520,16 @@ public class FarApp
         {
             const int namePartW = 34;
             var content = R.Fit(" Имя лицензии", namePartW) + R.Fit("Тип / Привязка", InnerW - namePartW);
+            R.BoxRow(2, content, R.HdrFg, R.HdrBg);
+            return;
+        }
+
+        if (kind == NavLevelKind.GroupBases1C   || kind == NavLevelKind.GroupServer1C ||
+            kind == NavLevelKind.GroupLicensing || kind == NavLevelKind.GroupInfra    ||
+            kind == NavLevelKind.GroupJournals)
+        {
+            const int namePartW = 34;
+            var content = R.Fit(" Имя", namePartW) + R.Fit("Описание", InnerW - namePartW);
             R.BoxRow(2, content, R.HdrFg, R.HdrBg);
             return;
         }
@@ -4631,6 +4745,15 @@ public class FarApp
 
     private void DrawPanelInfo(NavLevel lvl)
     {
+        if (lvl.Kind == NavLevelKind.GroupBases1C   || lvl.Kind == NavLevelKind.GroupServer1C ||
+            lvl.Kind == NavLevelKind.GroupLicensing || lvl.Kind == NavLevelKind.GroupInfra    ||
+            lvl.Kind == NavLevelKind.GroupJournals)
+        {
+            int cnt = lvl.Items.Count(i => !i.IsUp);
+            R.BoxRow(InfoRow, $"  {cnt} пункт(а)  │  [Enter] Открыть", R.HdrFg, R.HdrBg);
+            return;
+        }
+
         if (lvl.Kind == NavLevelKind.BasesRoot)
         {
             var baseItems = lvl.Items.Where(i => !i.IsUp).ToList();
