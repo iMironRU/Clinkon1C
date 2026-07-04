@@ -1,5 +1,10 @@
 # Changelog
 
+## [v1.2.77] — 2026-07-04
+- **fix** Клавиша `[S]` (смена сортировки) срабатывала на всех экранах вместо только Кэш ([#29](https://github.com/iMironRU/Clinkon1C/issues/29)). Добавлен guard: `kind2 == CacheRoot | CacheUser | CacheUnknown`.
+- **refactor** Единый рендер диалогов ([#30](https://github.com/iMironRU/Clinkon1C/issues/30)). Все методы `ConsoleDialog` переведены с `Console.Write` на `R.Put()+R.Flush()`. `R.BeginDialog()` снапшотит текущий экран; `R.RestoreSnapshot()` восстанавливает фон перед каждым кадром диалога — диалог рисуется поверх главного экрана одним атомарным вызовом WriteConsoleOutput (ConHost) или батч-буфером (Windows Terminal). Исправлен WCO: пустые ячейки используют `PanelBg` вместо Black.
+- **feat** Цветовые уровни диалогов ([#33](https://github.com/iMironRU/Clinkon1C/issues/33)). Добавлен `enum DialogKind { Info, Warning, Danger }`. Рамка диалога меняет цвет: белый (Info), жёлтый (Warning), красный (Danger). Деструктивные подтверждения используют `Danger`: удаление кэша, удаление лицензии, удаление COM-коннектора, снятие публикации. Предупреждения и стартовые диалоги — `Warning`.
+
 ## [v1.2.76] — 2026-07-03
 - **fix** `[Tab]` возвращён к открытию лога на всех экранах. Переключение фокуса в правую панель — через `[→]` (FAR-стиль): `[→]` на главном экране → Сводка, `[←]`/`[Esc]` → обратно в меню.
 - **perf** Кэш деталей лицензий: `ring license info` вызывается ровно один раз на лицензию за время жизни процесса. Повторные F5 используют `Dictionary<name, LicenseEntry>` без обращения к ring.

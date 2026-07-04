@@ -1603,7 +1603,9 @@ public class FarApp
                         ? CacheViewMode.ByBase : CacheViewMode.ByUser;
                     RebuildCurrentLevel();
                 }
-                else if (ch == 's')
+                else if (ch == 's' && (kind2 == NavLevelKind.CacheRoot
+                    || kind2 == NavLevelKind.CacheUser
+                    || kind2 == NavLevelKind.CacheUnknown))
                 {
                     _cache.SortBy = _cache.SortBy == SortMode.ByName
                         ? SortMode.BySize : SortMode.ByName;
@@ -1705,17 +1707,19 @@ public class FarApp
         if (total > 10L * 1024 * 1024 * 1024)
             ok = ConsoleDialog.ConfirmWord("ПОДТВЕРЖДЕНИЕ",
                 $"Удалить {paths.Count} объект(а)?\nОбъём: {SafeDelete.FormatSize(total)}",
-                "УДАЛИТЬ");
+                "УДАЛИТЬ", DialogKind.Danger);
         else
             ok = ConsoleDialog.Confirm("Подтверждение удаления",
-                $"Удалить {paths.Count} объект(а)?\nОбъём: {SafeDelete.FormatSize(total)}");
+                $"Удалить {paths.Count} объект(а)?\nОбъём: {SafeDelete.FormatSize(total)}",
+                kind: DialogKind.Danger);
 
         R.Invalidate(); // после диалога подтверждения — восстанавливаем панель
         if (!ok) return;
 
         if (ProcessHelper.AnyRunning1CProcesses())
         {
-            if (!ConsoleDialog.Confirm("Предупреждение", "Запущены процессы 1С!\nПродолжить?"))
+            if (!ConsoleDialog.Confirm("Предупреждение", "Запущены процессы 1С!\nПродолжить?",
+                    kind: DialogKind.Warning))
             { R.Invalidate(); return; }
             R.Invalidate();
         }
@@ -2072,7 +2076,8 @@ public class FarApp
         var name = item.Name;
 
         bool ok = ConsoleDialog.Confirm("Удалить лицензию",
-            $"Удалить лицензию из хранилища?\n\n{name}\n\nЭто действие необратимо.");
+            $"Удалить лицензию из хранилища?\n\n{name}\n\nЭто действие необратимо.",
+            kind: DialogKind.Danger);
         R.Invalidate();
         if (!ok) return;
 
@@ -2355,7 +2360,7 @@ public class FarApp
         {
             if (ConsoleDialog.Confirm("Удалить регистрацию",
                 $"Удалить COM-коннектор?\n\nProgID:  {e.ProgId}\nDLL:     {e.DllPath}\nТип:     {e.Source}",
-                defaultYes: false, "  Удалить  ", "  Отмена  "))
+                defaultYes: false, "  Удалить  ", "  Отмена  ", DialogKind.Danger))
             {
                 ConsoleDialog.ShowProgress("Удаление...", _ => _com.Unregister(e));
                 Logger.Info($"COM: удалена регистрация {e.ProgId}");
@@ -2378,7 +2383,7 @@ public class FarApp
         if (e == null) return;
         if (!ConsoleDialog.Confirm("Удалить регистрацию",
             $"Удалить COM-коннектор?\n\nProgID:  {e.ProgId}\nDLL:     {e.DllPath}\nТип:     {e.Source}",
-            defaultYes: false, "  Удалить  ", "  Отмена  "))
+            defaultYes: false, "  Удалить  ", "  Отмена  ", DialogKind.Danger))
             return;
         ConsoleDialog.ShowProgress("Удаление...", _ => _com.Unregister(e));
         Logger.Info($"COM: удалена регистрация {e.ProgId}");
@@ -2500,7 +2505,8 @@ public class FarApp
         if (entry == null) return;
 
         if (!ConsoleDialog.Confirm("Снять с публикации",
-            $"Снять публикацию {entry.Alias}?\n\nБудут удалены:\n• {entry.ConfFile}\n• {entry.VrdPath}"))
+            $"Снять публикацию {entry.Alias}?\n\nБудут удалены:\n• {entry.ConfFile}\n• {entry.VrdPath}",
+            kind: DialogKind.Danger))
         {
             R.Invalidate();
             return;

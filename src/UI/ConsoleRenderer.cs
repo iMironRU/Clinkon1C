@@ -54,6 +54,27 @@ internal static class R
     /// <summary>Следующий Flush перерисует весь экран (после диалогов, ресканов).</summary>
     public static void Invalidate() => _dirty = true;
 
+    // ── Снапшот для модальных диалогов ──────────────────────────────────────
+    // BeginDialog() захватывает текущий экран (_prev); RestoreSnapshot() восстанавливает
+    // его в _cur перед каждым кадром диалога, чтобы диалог рисовался поверх фона.
+
+    private static Cell[]? _snapshot;
+
+    /// <summary>Сохраняет текущий экран как фон для будущих диалоговых кадров.</summary>
+    public static void BeginDialog()
+    {
+        if (_snapshot == null || _snapshot.Length != _prev.Length)
+            _snapshot = new Cell[_prev.Length];
+        Array.Copy(_prev, _snapshot, _prev.Length);
+    }
+
+    /// <summary>Копирует сохранённый фон в _cur, чтобы следующий Flush показал диалог поверх него.</summary>
+    public static void RestoreSnapshot()
+    {
+        if (_snapshot == null || _snapshot.Length != _cur.Length) return;
+        Array.Copy(_snapshot, _cur, _snapshot.Length);
+    }
+
     // ── Запись в текущий кадр ────────────────────────────────────────────────
 
     private static void Set(int x, int y, char ch, ConsoleColor fg, ConsoleColor bg)
@@ -146,8 +167,16 @@ internal static class R
         for (int i = 0; i < _cur.Length && i < ci.Length; i++)
         {
             ref Cell c = ref _cur[i];
-            ci[i].Char       = c.Ch == '\0' ? (ushort)' ' : (ushort)c.Ch;
-            ci[i].Attributes = (short)((int)c.Bg << 4 | (int)c.Fg);
+            if (c.Ch == '\0')
+            {
+                ci[i].Char       = (ushort)' ';
+                ci[i].Attributes = (short)((int)PanelBg << 4 | (int)PanelFg);
+            }
+            else
+            {
+                ci[i].Char       = (ushort)c.Ch;
+                ci[i].Attributes = (short)((int)c.Bg << 4 | (int)c.Fg);
+            }
         }
         var size   = new COORD    { X = (short)_w, Y = (short)_h };
         var origin = new COORD    { X = 0, Y = 0 };
