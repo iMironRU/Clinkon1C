@@ -1157,7 +1157,7 @@ public class FarApp
 
         var apacheSt = !_web.ApacheFound
             ? "не найден"
-            : (_web.ApacheRunning ? "▶ Работает" : "■ Остановлен");
+            : (_web.ApacheRunning ? "► Работает" : "■ Остановлен");
 
         return new NavLevel
         {
@@ -1220,7 +1220,7 @@ public class FarApp
 
     private static string StatusDisplay(string status) => status switch
     {
-        "Running"      => "▶ Работает",
+        "Running"      => "► Работает",
         "Stopped"      => "■ Остановлен",
         "StartPending" => "⏳ Запуск...",
         "StopPending"  => "⏳ Остановка...",
@@ -2552,7 +2552,7 @@ public class FarApp
 
             var svcName = string.IsNullOrEmpty(_web.ApacheService) ? "" : $" ({_web.ApacheService})";
             var apacheSt = !_web.ApacheFound ? "не найден"
-                : (_web.ApacheRunning ? "▶ Работает" : "■ Остановлен");
+                : (_web.ApacheRunning ? "► Работает" : "■ Остановлен");
             sb.AppendLine();
             sb.AppendLine(new string('─', Math.Min(innerW, 40)));
             sb.AppendLine($"Apache{svcName}: {apacheSt}");
@@ -4339,7 +4339,7 @@ public class FarApp
                 break;
             case "group_server1c":
                 int runAgents = _agents.Entries.Count(a => a.Status == "Running");
-                inner = runAgents > 0 ? $"▶ {runAgents}" : " ";
+                inner = runAgents > 0 ? $"► {runAgents}" : " ";
                 break;
             case "group_licensing":
                 int eFound = _emulators.Found.Count;
@@ -4671,7 +4671,7 @@ public class FarApp
         // Агенты — специальная трёхколоночная раскладка
         if (kind == NavLevelKind.AgentsRoot && !item.IsUp)
         {
-            bool running = item.Description?.StartsWith("▶") == true;
+            bool running = item.Description?.StartsWith("►") == true;
             var afg = isCursor ? R.CurFg : (running ? ConsoleColor.Green : ConsoleColor.DarkGray);
             var abg = isCursor ? R.CurBg : R.PanelBg;
             const int nameW = 40;
@@ -4792,7 +4792,7 @@ public class FarApp
         if (lvl.Kind == NavLevelKind.WebRoot)
         {
             var apacheSt = !_web.ApacheFound ? "не найден"
-                : (_web.ApacheRunning ? "▶ Работает" : "■ Остановлен");
+                : (_web.ApacheRunning ? "► Работает" : "■ Остановлен");
             var webInfo  = $"  {_web.Entries.Count} публик.  │  Apache: {apacheSt}  │  [Enter] Инфо  [A] Анон.  [E] Редакт.  [J] JWT  [P] Публик.  [F8] Снять  [S] Старт  [T] Стоп  [R] Рестарт  [F5] Обновить";
             R.BoxRow(InfoRow, webInfo, R.HdrFg, R.HdrBg);
             return;
