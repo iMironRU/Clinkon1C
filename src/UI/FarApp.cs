@@ -221,7 +221,7 @@ public class FarApp
     // ── Сканирование ─────────────────────────────────────────────────────────
     private void StartUpdateWatcher()
     {
-        if (_updateChecker == null || _updateNotice != null) return;
+        if (_updateChecker == null) return;
 
         var t = new Thread(() =>
         {
