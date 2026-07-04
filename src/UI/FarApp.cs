@@ -4500,7 +4500,7 @@ public class FarApp
         if (!string.IsNullOrEmpty(_updateNotice))
         {
             var n = $" ★ {_updateNotice} — [U] обновить ";
-            R.Put(R.W - n.Length, 0, n, ConsoleColor.Green, R.HdrBg);
+            R.Put(R.W - n.Length, 0, n, ConsoleColor.Yellow, R.HdrBg);
         }
     }
 
