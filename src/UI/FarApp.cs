@@ -1631,7 +1631,13 @@ public class FarApp
                 break;
 
             case ConsoleKey.F5:
-                if (_nav.Count > 0 && _nav.Peek().Kind == NavLevelKind.AgentsRoot)
+                if (_nav.Count > 0 && _nav.Peek().Kind == NavLevelKind.LicensesRoot)
+                {
+                    ConsoleDialog.ShowProgress("Обновление...", _ => _licenses.Refresh());
+                    R.Invalidate();
+                    RebuildCurrentLevel();
+                }
+                else if (_nav.Count > 0 && _nav.Peek().Kind == NavLevelKind.AgentsRoot)
                 {
                     ConsoleDialog.ShowProgress("Обновление...", _ => _agents.Refresh());
                     R.Invalidate();
@@ -1980,7 +1986,8 @@ public class FarApp
 
     private void EnterLicenses()
     {
-        var state = RingHelper.CheckSetup();
+        var state    = RingHelper.CheckSetup();
+        bool justSetup = false;
 
         if (state == RingHelper.SetupState.NeedRing)
         {
@@ -1997,7 +2004,8 @@ public class FarApp
                 R.Invalidate();
                 return;
             }
-            state = RingHelper.CheckSetup();
+            state     = RingHelper.CheckSetup();
+            justSetup = true;
         }
 
         if (state == RingHelper.SetupState.NeedJava)
@@ -2023,10 +2031,16 @@ public class FarApp
                 R.Invalidate();
                 return;
             }
+            justSetup = true;
         }
 
-        ConsoleDialog.ShowProgress("Загрузка лицензий", _ => _licenses.Refresh());
-        R.Invalidate();
+        // Список лицензий уже загружен стартовым Rescan() — повторно сканируем
+        // только если ring/Java только что установлены (тогда список ещё пуст).
+        if (justSetup || _licenses.Entries.Count == 0)
+        {
+            ConsoleDialog.ShowProgress("Загрузка лицензий", _ => _licenses.Refresh());
+            R.Invalidate();
+        }
         _nav.Push(MakeLicensesLevel());
     }
 
