@@ -1,5 +1,8 @@
 # Changelog
 
+## [v1.2.78] — 2026-07-04
+- **fix** Краш `ArgumentOutOfRangeException` на старте (`ShowElevationMenu`/`ShowWarningDialog`/`ShowDotNetRequiredDialog`) — эти диалоги вызываются до первого `R.Init()`, и `R.W`/`R.H` возвращали 0, что давало отрицательную ширину рамки. `R.W`/`R.H` теперь сами инициализируют буфер при первом обращении (`CheckResize()` внутри геттеров).
+
 ## [v1.2.77] — 2026-07-04
 - **fix** Клавиша `[S]` (смена сортировки) срабатывала на всех экранах вместо только Кэш ([#29](https://github.com/iMironRU/Clinkon1C/issues/29)). Добавлен guard: `kind2 == CacheRoot | CacheUser | CacheUnknown`.
 - **refactor** Единый рендер диалогов ([#30](https://github.com/iMironRU/Clinkon1C/issues/30)). Все методы `ConsoleDialog` переведены с `Console.Write` на `R.Put()+R.Flush()`. `R.BeginDialog()` снапшотит текущий экран; `R.RestoreSnapshot()` восстанавливает фон перед каждым кадром диалога — диалог рисуется поверх главного экрана одним атомарным вызовом WriteConsoleOutput (ConHost) или батч-буфером (Windows Terminal). Исправлен WCO: пустые ячейки используют `PanelBg` вместо Black.

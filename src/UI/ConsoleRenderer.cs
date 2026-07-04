@@ -31,8 +31,10 @@ internal static class R
     private static int    _w, _h;
     private static bool   _dirty = true; // форсируем полную перерисовку при первом Flush
 
-    public static int W => _w;
-    public static int H => _h;
+    // W/H гарантируют инициализированный буфер даже при первом обращении
+    // до явного R.Init() (стартовые диалоги вызываются раньше главного экрана).
+    public static int W { get { CheckResize(); return _w; } }
+    public static int H { get { CheckResize(); return _h; } }
 
     /// <summary>Инициализирует буфер под текущий размер терминала.</summary>
     public static void Init()
@@ -44,10 +46,10 @@ internal static class R
         _dirty = true;
     }
 
-    /// <summary>Переинициализирует буфер если терминал был изменён.</summary>
+    /// <summary>Переинициализирует буфер если терминал был изменён (или буфер ещё пуст).</summary>
     public static void CheckResize()
     {
-        if (Console.WindowWidth != _w || Console.WindowHeight != _h)
+        if (_w == 0 || Console.WindowWidth != _w || Console.WindowHeight != _h)
             Init();
     }
 
