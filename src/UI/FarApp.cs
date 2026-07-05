@@ -1343,17 +1343,15 @@ public class FarApp
                     DoAgentInfo(item.BaseName);
                 break;
 
-            case NavLevelKind.ProcessesRoot:
-                DoProcessInfo(item.BaseName);
-                break;
+            // ProcessesRoot: предпросмотр уже виден в правой панели, Enter не нужен —
+            // завершение процесса через [K]/[F8].
 
             case NavLevelKind.WebRoot:
                 if (!item.IsDead) DoWebInfo(item.BaseName);
                 break;
 
-            case NavLevelKind.EmulatorsRoot:
-                DoEmulatorInfo(item.BaseName);
-                break;
+            // EmulatorsRoot: предпросмотр уже виден в правой панели, Enter не нужен —
+            // удаление через [D]/[F8].
 
             case NavLevelKind.ConfigsRoot:
                 DoEditConfig(item.BaseName);
@@ -3463,35 +3461,6 @@ public class FarApp
 
     // ── Эмуляторы HASP ───────────────────────────────────────────────────────
 
-    private void DoEmulatorInfo(string? name)
-    {
-        if (string.IsNullOrEmpty(name)) return;
-        var e = _emulators.Found.FirstOrDefault(x => x.Name == name);
-        if (e == null) return;
-
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"Эмулятор: {e.Name}");
-        sb.AppendLine();
-        sb.AppendLine($"Сервис:   {(e.SvcFound ? (e.SvcRunning ? "запущен" : "остановлен") : "не найден")}");
-        if (e.SysPaths.Length > 0)
-        {
-            sb.AppendLine($".sys файлы ({e.SysPaths.Length}):");
-            foreach (var p in e.SysPaths) sb.AppendLine($"  {p}");
-        }
-        else
-        {
-            sb.AppendLine(".sys файлы: не найдены");
-        }
-        sb.AppendLine($"Дамп реестра: {(e.DumpFound ? "найден" : "нет")}");
-        if (e.DumpFound)
-            sb.AppendLine($"  HKLM\\SYSTEM\\CurrentControlSet\\{e.Name}");
-
-        var eLines = sb.ToString().TrimEnd().Replace("\r\n", "\n").Split('\n')
-                        .Select(l => l.TrimEnd('\r')).ToArray();
-        ConsoleDialog.ShowInfo($"Эмулятор — {e.Name}", eLines, "  Закрыть  ");
-        R.Invalidate();
-    }
-
     private void DoEmulatorRemove()
     {
         var lvl = _nav.Peek();
@@ -3717,39 +3686,6 @@ public class FarApp
     {
         s = s.Trim().ToLowerInvariant();
         return s is "да" or "yes" or "y" or "1" or "true";
-    }
-
-    private void DoProcessInfo(string? pidStr)
-    {
-        if (pidStr == null || !int.TryParse(pidStr, out var pid)) return;
-        var e = _processes.Entries.FirstOrDefault(x => x.Pid == pid);
-        if (e == null) return;
-
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"PID:         {e.Pid}");
-        sb.AppendLine($"Файл:        {e.ExeName}");
-        if (!string.IsNullOrEmpty(e.Version))
-            sb.AppendLine($"Версия 1С:   {e.Version}");
-        sb.AppendLine($"Режим:       {e.Mode}");
-        if (!string.IsNullOrEmpty(e.DbType))
-            sb.AppendLine($"Тип базы:    {e.DbType}");
-        if (!string.IsNullOrEmpty(e.DbPath))
-            sb.AppendLine($"База:        {e.DbPath}");
-        if (!string.IsNullOrEmpty(e.User1C))
-            sb.AppendLine($"Польз. 1С:   {e.User1C}");
-        if (!string.IsNullOrEmpty(e.WinUser))
-            sb.AppendLine($"Windows:     {e.WinUser}");
-        if (!string.IsNullOrEmpty(e.CmdLine))
-        {
-            sb.AppendLine();
-            sb.AppendLine("Командная строка:");
-            sb.AppendLine($"  {e.CmdLine}");
-        }
-
-        var pLines = sb.ToString().TrimEnd().Replace("\r\n", "\n").Split('\n')
-                       .Select(l => l.TrimEnd('\r')).ToArray();
-        ConsoleDialog.ShowInfo($"Процесс PID {e.Pid}", pLines, "  Закрыть  ");
-        R.Invalidate();
     }
 
     private void DoProcessKill()
@@ -4318,6 +4254,16 @@ public class FarApp
             DrawLicensesRoot(lvl);
             return;
         }
+        if (lvl.Kind == NavLevelKind.ProcessesRoot)
+        {
+            DrawProcessesRoot(lvl);
+            return;
+        }
+        if (lvl.Kind == NavLevelKind.EmulatorsRoot)
+        {
+            DrawEmulatorsRoot(lvl);
+            return;
+        }
 
         DrawHeader();
         R.BoxTop(1, lvl.Title);
@@ -4660,6 +4606,141 @@ public class FarApp
 
         lines.Add(("", R.PanelFg));
         lines.Add((" [F4] Подробнее — файл .lic + ring info", ConsoleColor.Cyan));
+        return lines;
+    }
+
+    // ── Процессы / Эмуляторы HASP — split-panel: чистый предпросмотр (без F4) ──
+    // Данные уже в памяти, ничего не редактируется — превью живёт просто от курсора.
+
+    private void DrawProcessesRoot(NavLevel lvl)
+        => DrawSplitPreview(lvl, "Просмотр",
+            "  [K]/[F8] Завершить  [A] Завершить все", BuildProcessPreviewLines);
+
+    private void DrawEmulatorsRoot(NavLevel lvl)
+        => DrawSplitPreview(lvl, "Просмотр",
+            "  [D]/[F8] Удалить  [F5] Повторить скан", BuildEmulatorPreviewLines);
+
+    /// <summary>Общий split-panel рендер для экранов без F4/редактирования — только живой предпросмотр.</summary>
+    private void DrawSplitPreview(NavLevel lvl, string rightTitle, string hint,
+        Func<NavItem?, List<(string Text, ConsoleColor Fg)>> buildPreview)
+    {
+        DrawHeader();
+        R.SplitTop(1, lvl.Title, rightTitle);
+        R.SplitRow(2, "", R.PanelFg, R.PanelBg, "", R.PanelFg, R.PanelBg);
+        R.SplitSep(3);
+
+        var previewLines = buildPreview(lvl.Items.Count > 0 ? lvl.Items[lvl.Cursor] : null);
+
+        for (int row = ItemTop; row <= ItemBot; row++)
+        {
+            int idx = lvl.ScrollTop + (row - ItemTop);
+
+            string leftContent = "";
+            ConsoleColor lfg = R.PanelFg, lbg = R.PanelBg;
+            if (idx < lvl.Items.Count)
+            {
+                var item      = lvl.Items[idx];
+                bool isCursor = idx == lvl.Cursor;
+                leftContent = item.IsUp
+                    ? " [..]"
+                    : $" {(item.CanEnter ? "►" : " ")} {R.Fit(item.Name, Math.Max(0, R.LeftInnerW - 3))}";
+                if (item.IsDead && !isCursor) lfg = R.DeadFg;
+                if (isCursor) { lfg = R.CurFg; lbg = R.CurBg; }
+            }
+
+            string rightContent = "";
+            ConsoleColor rfg = R.PanelFg;
+            int pIdx = row - ItemTop;
+            if (pIdx < previewLines.Count)
+            {
+                rightContent = previewLines[pIdx].Text;
+                rfg          = previewLines[pIdx].Fg;
+            }
+
+            R.SplitRow(row, leftContent, lfg, lbg, rightContent, rfg, R.PanelBg);
+        }
+
+        R.SplitSep(SepBot);
+        R.SplitRow(InfoRow, hint, R.HdrFg, R.HdrBg, "", R.HdrFg, R.HdrBg);
+        R.SplitBottom(BotBorder);
+        DrawMsg();
+        DrawKeyBar();
+        R.Flush();
+    }
+
+    private List<(string Text, ConsoleColor Fg)> BuildProcessPreviewLines(NavItem? item)
+    {
+        var lines = new List<(string, ConsoleColor)>();
+        if (item == null || item.IsUp || item.BaseName == null || !int.TryParse(item.BaseName, out var pid))
+        {
+            lines.Add(("  Выберите процесс для просмотра", ConsoleColor.DarkGray));
+            return lines;
+        }
+
+        var e = _processes.Entries.FirstOrDefault(x => x.Pid == pid);
+        if (e == null)
+        {
+            lines.Add(("  (нет данных)", ConsoleColor.DarkGray));
+            return lines;
+        }
+
+        lines.Add((" PID:          " + e.Pid, ConsoleColor.White));
+        lines.Add((" Файл:         " + e.ExeName, ConsoleColor.White));
+        if (!string.IsNullOrEmpty(e.Version))
+            lines.Add((" Версия 1С:    " + e.Version, ConsoleColor.White));
+        lines.Add((" Режим:        " + e.Mode, ConsoleColor.White));
+        if (!string.IsNullOrEmpty(e.DbType))
+            lines.Add((" Тип базы:     " + e.DbType, ConsoleColor.White));
+        if (!string.IsNullOrEmpty(e.DbPath))
+            lines.Add((" База:         " + e.DbPath, ConsoleColor.White));
+        if (!string.IsNullOrEmpty(e.User1C))
+            lines.Add((" Польз. 1С:    " + e.User1C, ConsoleColor.White));
+        if (!string.IsNullOrEmpty(e.WinUser))
+            lines.Add((" Windows:      " + e.WinUser, ConsoleColor.White));
+        if (!string.IsNullOrEmpty(e.CmdLine))
+        {
+            lines.Add(("", R.PanelFg));
+            lines.Add((" Командная строка:", ConsoleColor.Cyan));
+            lines.Add(("  " + e.CmdLine, ConsoleColor.White));
+        }
+        return lines;
+    }
+
+    private List<(string Text, ConsoleColor Fg)> BuildEmulatorPreviewLines(NavItem? item)
+    {
+        var lines = new List<(string, ConsoleColor)>();
+        if (item == null || item.IsUp || item.BaseName == null)
+        {
+            lines.Add(("  Выберите эмулятор для просмотра", ConsoleColor.DarkGray));
+            return lines;
+        }
+
+        var e = _emulators.Found.FirstOrDefault(x => x.Name == item.BaseName);
+        if (e == null)
+        {
+            lines.Add((" Эмулятор: " + item.BaseName, ConsoleColor.White));
+            lines.Add((" Статус:    не обнаружен", ConsoleColor.DarkGray));
+            return lines;
+        }
+
+        lines.Add((" Эмулятор:     " + e.Name, ConsoleColor.Red));
+        lines.Add(("", R.PanelFg));
+        lines.Add((" Сервис:       " + (e.SvcFound ? (e.SvcRunning ? "запущен" : "остановлен") : "не найден"),
+            e.SvcRunning ? ConsoleColor.Red : ConsoleColor.White));
+        if (e.SysPaths.Length > 0)
+        {
+            lines.Add((" .sys файлы (" + e.SysPaths.Length + "):", ConsoleColor.White));
+            foreach (var p in e.SysPaths) lines.Add(("   " + p, ConsoleColor.White));
+        }
+        else
+        {
+            lines.Add((" .sys файлы:   не найдены", ConsoleColor.DarkGray));
+        }
+        lines.Add((" Дамп реестра: " + (e.DumpFound ? "найден" : "нет"),
+            e.DumpFound ? ConsoleColor.Red : ConsoleColor.White));
+        if (e.DumpFound)
+            lines.Add(("   HKLM\\SYSTEM\\CurrentControlSet\\" + e.Name, ConsoleColor.DarkGray));
+
         return lines;
     }
 
@@ -5169,9 +5250,9 @@ public class FarApp
             NavLevelKind.BasesRoot     => "[Пробел] Отметить  [C] Польз.  [E] .v8i",
             NavLevelKind.LicensesRoot  => "[F4] Подробнее  [A] Активация  [V] Проверить",
             NavLevelKind.AgentsRoot    => "[Enter] Инфо  [S] Старт  [T] Стоп  [R] Рестарт  [D] Отладка  [N] Новый",
-            NavLevelKind.ProcessesRoot => "[Enter] Инфо  [K]/[F8] Завершить  [A] Завершить все",
+            NavLevelKind.ProcessesRoot => "[K]/[F8] Завершить  [A] Завершить все",
             NavLevelKind.WebRoot       => "[Enter] Инфо  [A] Анон.  [E] Редакт.  [J] JWT  [P] Публик.  [F8] Снять  [S] Старт  [T] Стоп  [R] Рестарт",
-            NavLevelKind.EmulatorsRoot => "[Enter] Детали  [D] Удалить",
+            NavLevelKind.EmulatorsRoot => "[D] Удалить",
             NavLevelKind.ConfigsRoot   => "[Enter] Редактировать",
             NavLevelKind.ComRoot       => "[F4] Редактировать",
             NavLevelKind.CacheRoot or NavLevelKind.CacheUser
