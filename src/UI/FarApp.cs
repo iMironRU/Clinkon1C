@@ -129,6 +129,13 @@ public class FarApp
     private string _comEditValue    = "";
     private string _comEditOriginal = "";
 
+    // ── Split-panel «Подробнее» (Лицензии — F4 разворачивает файл .lic + ring info) ──
+    private bool     _licExpanded;
+    private int      _licScroll;
+    private string[] _licExpandedLines = Array.Empty<string>();
+    private readonly Dictionary<string, string> _licFullTextCache =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
     // ── Раскладка экрана ─────────────────────────────────────────────────────
     private static int ItemTop    => 4;              // первая строка items
     private static int ItemBot    => R.H - 6;        // последняя строка items
@@ -1324,9 +1331,8 @@ public class FarApp
                     _nav.Push(MakeTemplatesGroupLevel(item.Paths[0], item.Name));
                 break;
 
-            case NavLevelKind.LicensesRoot:
-                DoShowLicenseInfo(item.Name);
-                break;
+            // LicensesRoot: базовый предпросмотр уже виден в правой панели,
+            // Enter не нужен — подробности через [F4], проверка/удаление — [V]/[F8].
 
             case NavLevelKind.AgentsRoot:
                 if (item.BaseName?.StartsWith("RAS:") == true)
@@ -1555,6 +1561,9 @@ public class FarApp
         // Пока идёт inline-редактирование (F4) — все клавиши перехватываются здесь,
         // навигация по списку заблокирована до F2 (сохранить) / Esc (отмена).
         if (_comEditing) { HandleComEditKey(k); return; }
+        // Пока развёрнут полный дамп лицензии (F4) — Up/Down прокручивают текст,
+        // а не список; F4/Esc сворачивают обратно к базовому предпросмотру.
+        if (_licExpanded) { HandleLicenseExpandedKey(k); return; }
 
         switch (k.Key)
         {
@@ -1641,6 +1650,8 @@ public class FarApp
             case ConsoleKey.F4:
                 if (_nav.Count > 0 && _nav.Peek().Kind == NavLevelKind.ComRoot)
                     ComStartEdit();
+                else if (_nav.Count > 0 && _nav.Peek().Kind == NavLevelKind.LicensesRoot)
+                    LicenseExpand();
                 break;
 
             case ConsoleKey.F5:
@@ -2063,84 +2074,105 @@ public class FarApp
         _nav.Push(MakeLicensesLevel());
     }
 
-    private void DoShowLicenseInfo(string name)
+    // ── Split-panel «Подробнее» (F4 — файл .lic + ring info в правой панели) ──
+
+    private void LicenseExpand()
     {
-        if (string.IsNullOrEmpty(name) || name == "..") return;
+        if (_nav.Count == 0) return;
+        var lvl = _nav.Peek();
+        if (lvl.Items.Count == 0) return;
+        var item = lvl.Items[lvl.Cursor];
+        if (item.IsUp || string.IsNullOrEmpty(item.Name)) return;
 
-        var entry      = _licenses.Entries.FirstOrDefault(x => x.Name == name);
-        var licFileName = entry?.FileName ?? "";
-
-        string? licPath    = null;
-        Dictionary<string, string>? licData = null;
-        string ringInfo    = "";
-
-        ConsoleDialog.ShowProgress("Загрузка информации", upd =>
-        {
-            upd("Поиск файла лицензии...");
-            licPath = LicensesModule.FindLicFileByName(name, licFileName);
-            if (licPath != null)
-                licData = LicensesModule.ReadLicFile(licPath);
-
-            upd("ring license info...");
-            ringInfo = _licenses.GetFullInfo(name);
-        });
+        string? text = null;
+        if (_licFullTextCache.TryGetValue(item.Name, out var cached))
+            text = cached;
+        else
+            ConsoleDialog.ShowProgress("Загрузка информации", _ => { text = BuildLicenseFullText(item.Name); });
         R.Invalidate();
 
-        int innerW = Math.Min(Console.WindowWidth - 4, 78) - 4;
-        var displaySb = new System.Text.StringBuilder();
-        var saveSb    = new System.Text.StringBuilder();
+        _licExpandedLines = (text ?? "(ошибка загрузки)").Replace("\r", "").Split('\n');
+        _licScroll        = 0;
+        _licExpanded      = true;
+    }
 
-        // ── .lic файл ────────────────────────────────────────────────────────
+    private void HandleLicenseExpandedKey(ConsoleKeyInfo k)
+    {
+        int visH = Math.Max(1, ItemBot - ItemTop + 1);
+        if (k.Key == ConsoleKey.Escape || k.Key == ConsoleKey.F4)
+        {
+            _licExpanded = false;
+            _licScroll   = 0;
+            return;
+        }
+        if (k.Key == ConsoleKey.UpArrow)   { _licScroll = Math.Max(0, _licScroll - 1); return; }
+        if (k.Key == ConsoleKey.DownArrow)  { _licScroll = Math.Min(Math.Max(0, _licExpandedLines.Length - visH), _licScroll + 1); return; }
+        if (k.Key == ConsoleKey.PageUp)     { _licScroll = Math.Max(0, _licScroll - visH); return; }
+        if (k.Key == ConsoleKey.PageDown)   { _licScroll = Math.Min(Math.Max(0, _licExpandedLines.Length - visH), _licScroll + visH); return; }
+        if (k.Key == ConsoleKey.Home)       { _licScroll = 0; return; }
+        if (k.Key == ConsoleKey.End)        { _licScroll = Math.Max(0, _licExpandedLines.Length - visH); return; }
+        if (char.ToLower(k.KeyChar) == 's') LicenseSaveExpanded();
+    }
+
+    private void LicenseSaveExpanded()
+    {
+        if (_nav.Count == 0) return;
+        var lvl  = _nav.Peek();
+        var item = lvl.Items[lvl.Cursor];
+        var name = item.Name;
+        var text = string.Join("\n", _licExpandedLines);
+        var safeName = new string(name.Where(c => !System.IO.Path.GetInvalidFileNameChars().Contains(c)).ToArray());
+        try
+        {
+            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            var fpath   = System.IO.Path.Combine(desktop, $"license_{safeName}.txt");
+            System.IO.File.WriteAllText(fpath, $"Лицензия: {name}\n\n{text}", System.Text.Encoding.UTF8);
+            ConsoleDialog.ShowOk("Сохранено", fpath);
+        }
+        catch (Exception ex)
+        {
+            ConsoleDialog.ShowOk("Ошибка сохранения", ex.Message);
+        }
+        R.Invalidate();
+    }
+
+    /// <summary>Читает файл .lic + ring license info для лицензии; кэширует по имени.</summary>
+    private string BuildLicenseFullText(string name)
+    {
+        if (_licFullTextCache.TryGetValue(name, out var cached)) return cached;
+
+        var entry       = _licenses.Entries.FirstOrDefault(x => x.Name == name);
+        var licFileName = entry?.FileName ?? "";
+
+        var licPath = LicensesModule.FindLicFileByName(name, licFileName);
+        var licData = licPath != null ? LicensesModule.ReadLicFile(licPath) : null;
+        var ringInfo = _licenses.GetFullInfo(name);
+
+        int innerW = Math.Max(20, R.RightInnerW - 2);
+        var sb = new System.Text.StringBuilder();
+
         if (licPath != null && licData != null && licData.Count > 0)
         {
-            var header = $"Файл: {System.IO.Path.GetFileName(licPath)}";
-            var path   = $"Путь: {licPath}";
-            displaySb.AppendLine(header);
-            displaySb.AppendLine(path);
-            displaySb.AppendLine();
-            saveSb.AppendLine(header);
-            saveSb.AppendLine(path);
-            saveSb.AppendLine();
-
-            var table = FormatLicTable(licData, innerW);
-            displaySb.Append(table);
-            saveSb.Append(table);
+            sb.AppendLine($"Файл: {System.IO.Path.GetFileName(licPath)}");
+            sb.AppendLine($"Путь: {licPath}");
+            sb.AppendLine();
+            sb.Append(FormatLicTable(licData, innerW));
         }
         else
         {
-            displaySb.AppendLine("(файл .lic не найден в стандартных директориях 1С)");
-            saveSb.AppendLine("(файл .lic не найден)");
+            sb.AppendLine("(файл .lic не найден в стандартных директориях 1С)");
         }
 
-        // ── ring license info (регистрационные данные) ────────────────────────
         if (!string.IsNullOrWhiteSpace(ringInfo))
         {
-            displaySb.AppendLine();
-            displaySb.AppendLine(new string('─', Math.Min(innerW, 40)));
-            displaySb.AppendLine(ringInfo);
-            saveSb.AppendLine();
-            saveSb.AppendLine(new string('─', 40));
-            saveSb.AppendLine(ringInfo);
+            sb.AppendLine();
+            sb.AppendLine(new string('─', Math.Min(innerW, 40)));
+            sb.AppendLine(ringInfo);
         }
 
-        var fullSaveText = $"Лицензия: {name}\n\n{saveSb}";
-        var safeName     = new string(name.Where(c => !System.IO.Path.GetInvalidFileNameChars().Contains(c)).ToArray());
-
-        ConsoleDialog.ShowText($"Лицензия: {name}", displaySb.ToString(), () =>
-        {
-            try
-            {
-                var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                var fpath   = System.IO.Path.Combine(desktop, $"license_{safeName}.txt");
-                System.IO.File.WriteAllText(fpath, fullSaveText, System.Text.Encoding.UTF8);
-                ConsoleDialog.ShowOk("Сохранено", fpath);
-            }
-            catch (Exception ex)
-            {
-                ConsoleDialog.ShowOk("Ошибка сохранения", ex.Message);
-            }
-        });
-        R.Invalidate();
+        var text = sb.ToString();
+        _licFullTextCache[name] = text;
+        return text;
     }
 
     private static readonly string[] LicFieldOrder = new[]
@@ -4281,6 +4313,11 @@ public class FarApp
             DrawComRoot(lvl);
             return;
         }
+        if (lvl.Kind == NavLevelKind.LicensesRoot)
+        {
+            DrawLicensesRoot(lvl);
+            return;
+        }
 
         DrawHeader();
         R.BoxTop(1, lvl.Title);
@@ -4511,6 +4548,119 @@ public class FarApp
             ("", R.PanelFg),
             (" [F2] Сохранить   [Esc] Отмена", ConsoleColor.Cyan)
         };
+    }
+
+    // ── Лицензии — split-panel: базовый предпросмотр (без запроса) + F4 разворот ──
+
+    private void DrawLicensesRoot(NavLevel lvl)
+    {
+        DrawHeader();
+        R.SplitTop(1, lvl.Title, _licExpanded ? "Подробно" : "Просмотр");
+        R.SplitRow(2, "", R.PanelFg, R.PanelBg, "", R.PanelFg, R.PanelBg);
+        R.SplitSep(3);
+
+        int visH = Math.Max(1, ItemBot - ItemTop + 1);
+        List<(string Text, ConsoleColor Fg)> previewLines;
+
+        if (_licExpanded)
+        {
+            var all = _licExpandedLines;
+            _licScroll = Math.Max(0, Math.Min(_licScroll, Math.Max(0, all.Length - visH)));
+            previewLines = new List<(string, ConsoleColor)>();
+            for (int i = 0; i < visH; i++)
+            {
+                int li = _licScroll + i;
+                previewLines.Add(li < all.Length
+                    ? (R.Fit(all[li], Math.Max(0, R.RightInnerW - 1)), ConsoleColor.White)
+                    : ("", R.PanelFg));
+            }
+        }
+        else
+        {
+            previewLines = BuildLicensePreviewLines(lvl.Items.Count > 0 ? lvl.Items[lvl.Cursor] : null);
+        }
+
+        for (int row = ItemTop; row <= ItemBot; row++)
+        {
+            int idx = lvl.ScrollTop + (row - ItemTop);
+
+            string leftContent = "";
+            ConsoleColor lfg = R.PanelFg, lbg = R.PanelBg;
+            if (idx < lvl.Items.Count)
+            {
+                var item      = lvl.Items[idx];
+                bool isCursor = idx == lvl.Cursor;
+                leftContent = item.IsUp
+                    ? " [..]"
+                    : $" ► {R.Fit(item.Name, Math.Max(0, R.LeftInnerW - 2))}";
+                if (isCursor)
+                {
+                    // Во время разворота (_licExpanded) фокус ввода — на правой панели,
+                    // курсор списка подсвечиваем приглушённо (жёлтым), не как активный.
+                    lfg = _licExpanded ? R.SelFg : R.CurFg;
+                    lbg = _licExpanded ? R.PanelBg : R.CurBg;
+                }
+            }
+
+            string rightContent = "";
+            ConsoleColor rfg = R.PanelFg;
+            int pIdx = row - ItemTop;
+            if (pIdx < previewLines.Count)
+            {
+                rightContent = previewLines[pIdx].Text;
+                rfg          = previewLines[pIdx].Fg;
+            }
+
+            R.SplitRow(row, leftContent, lfg, lbg, rightContent, rfg, R.PanelBg);
+        }
+
+        R.SplitSep(SepBot);
+        var hint = _licExpanded
+            ? "  ↑↓ PgUp PgDn — прокрутка   [S] Сохранить   [F4]/[Esc] Свернуть"
+            : "  [F4] Подробнее  [V] Проверить  [F8] Удалить";
+        R.SplitRow(InfoRow, hint, R.HdrFg, R.HdrBg, "", R.HdrFg, R.HdrBg);
+        R.SplitBottom(BotBorder);
+        DrawMsg();
+        DrawKeyBar();
+        R.Flush();
+    }
+
+    private List<(string Text, ConsoleColor Fg)> BuildLicensePreviewLines(NavItem? item)
+    {
+        var lines = new List<(string, ConsoleColor)>();
+        if (item == null || item.IsUp || string.IsNullOrEmpty(item.Name))
+        {
+            lines.Add(("  Выберите лицензию для просмотра", ConsoleColor.DarkGray));
+            return lines;
+        }
+
+        var e = _licenses.Entries.FirstOrDefault(x => x.Name == item.Name);
+        if (e == null)
+        {
+            lines.Add(("  (нет данных)", ConsoleColor.DarkGray));
+            return lines;
+        }
+
+        lines.Add((" Имя:           " + e.Name, ConsoleColor.White));
+        if (!string.IsNullOrEmpty(e.LicenseType))
+            lines.Add((" Тип:           " + e.LicenseType, ConsoleColor.White));
+        if (!string.IsNullOrEmpty(e.AssociationType))
+        {
+            var assoc = e.AssociationType == "HardwareProtectionKey" ? "HASP"
+                      : e.AssociationType == "Computer"              ? "ПК"
+                      : e.AssociationType;
+            lines.Add((" Привязка:      " + assoc, ConsoleColor.White));
+        }
+        if (!string.IsNullOrEmpty(e.RegistrationNumber))
+            lines.Add((" Рег. номер:    " + e.RegistrationNumber, ConsoleColor.White));
+        if (!string.IsNullOrEmpty(e.GenerationDate))
+            lines.Add((" Дата выпуска:  " + e.GenerationDate, ConsoleColor.White));
+        if (!string.IsNullOrEmpty(e.FileName))
+            lines.Add((" Файл:          " + e.FileName, ConsoleColor.White));
+
+        lines.Add(("", R.PanelFg));
+        lines.Add((" [F4] Подробнее — файл .lic + ring info", ConsoleColor.Cyan));
+        return lines;
     }
 
     private List<(string Text, ConsoleColor Fg, string? Nav)> BuildDiagLines()
@@ -5017,7 +5167,7 @@ public class FarApp
             NavLevelKind.Home when _diagFocus
                                        => "[↑↓] Навигация  [Enter] Открыть  [←]/[Esc] Назад",
             NavLevelKind.BasesRoot     => "[Пробел] Отметить  [C] Польз.  [E] .v8i",
-            NavLevelKind.LicensesRoot  => "[Enter] Инфо  [A] Активация  [V] Проверить",
+            NavLevelKind.LicensesRoot  => "[F4] Подробнее  [A] Активация  [V] Проверить",
             NavLevelKind.AgentsRoot    => "[Enter] Инфо  [S] Старт  [T] Стоп  [R] Рестарт  [D] Отладка  [N] Новый",
             NavLevelKind.ProcessesRoot => "[Enter] Инфо  [K]/[F8] Завершить  [A] Завершить все",
             NavLevelKind.WebRoot       => "[Enter] Инфо  [A] Анон.  [E] Редакт.  [J] JWT  [P] Публик.  [F8] Снять  [S] Старт  [T] Стоп  [R] Рестарт",
