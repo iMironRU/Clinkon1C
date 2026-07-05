@@ -124,6 +124,11 @@ public class FarApp
     private List<(string Text, ConsoleColor Fg, string? Nav)> _diagLines =
         new List<(string, ConsoleColor, string?)>();
 
+    // ── Split-panel редактирование (COM — пилот унификации, F4/F2/Esc) ───────
+    private bool   _comEditing;
+    private string _comEditValue    = "";
+    private string _comEditOriginal = "";
+
     // ── Раскладка экрана ─────────────────────────────────────────────────────
     private static int ItemTop    => 4;              // первая строка items
     private static int ItemBot    => R.H - 6;        // последняя строка items
@@ -1348,9 +1353,8 @@ public class FarApp
                 DoEditConfig(item.BaseName);
                 break;
 
-            case NavLevelKind.ComRoot:
-                DoComAction(item);
-                break;
+            // ComRoot: предпросмотр уже виден в правой панели, Enter не нужен —
+            // редактирование/регистрация через [F4], удаление через [F8].
         }
     }
 
@@ -1548,6 +1552,10 @@ public class FarApp
     // ── Обработка клавиш ─────────────────────────────────────────────────────
     private void Handle(ConsoleKeyInfo k)
     {
+        // Пока идёт inline-редактирование (F4) — все клавиши перехватываются здесь,
+        // навигация по списку заблокирована до F2 (сохранить) / Esc (отмена).
+        if (_comEditing) { HandleComEditKey(k); return; }
+
         switch (k.Key)
         {
             case ConsoleKey.UpArrow:
@@ -1630,8 +1638,19 @@ public class FarApp
                 DoDryRun();
                 break;
 
+            case ConsoleKey.F4:
+                if (_nav.Count > 0 && _nav.Peek().Kind == NavLevelKind.ComRoot)
+                    ComStartEdit();
+                break;
+
             case ConsoleKey.F5:
-                if (_nav.Count > 0 && _nav.Peek().Kind == NavLevelKind.LicensesRoot)
+                if (_nav.Count > 0 && _nav.Peek().Kind == NavLevelKind.ComRoot)
+                {
+                    ConsoleDialog.ShowProgress("Обновление...", _ => _com.Scan());
+                    R.Invalidate();
+                    RebuildCurrentLevel();
+                }
+                else if (_nav.Count > 0 && _nav.Peek().Kind == NavLevelKind.LicensesRoot)
                 {
                     ConsoleDialog.ShowProgress("Обновление...", _ => _licenses.Refresh());
                     R.Invalidate();
@@ -2405,106 +2424,102 @@ public class FarApp
         return Path.GetFileName(dllPath);
     }
 
-    private void DoComAction(NavItem item)
-    {
-        if (item.BaseName == null) return;
+    // ── Inline-редактирование в правой панели (F4/F2/Esc) ────────────────────
+    // Пилот унификации: вместо модального окна ProgID редактируется прямо
+    // в панели предпросмотра — F4 входит, F2 сохраняет, Esc отменяет.
 
-        // Зарегистрированная запись — инфо-диалог
+    private void ComStartEdit()
+    {
+        if (_nav.Count == 0) return;
+        var lvl = _nav.Peek();
+        if (lvl.Items.Count == 0) return;
+        var item = lvl.Items[lvl.Cursor];
+        if (item.IsUp || !item.CanEnter || item.BaseName == null) return;
+
         var registered = _com.Registered.FirstOrDefault(e => e.ProgId == item.BaseName);
         if (registered != null)
         {
-            DoComInfo(registered);
-            return;
+            _comEditValue = registered.ProgId;
         }
-
-        // Доступная запись — регистрация
-        var available = _com.Available.FirstOrDefault(e => e.DllPath == item.BaseName);
-        if (available == null) return;
-
-        string defaultProgId = ComEntry.DefaultProgId(available.DllPath);
-        var progId = ConsoleDialog.InputText(
-            "Регистрация COM-коннектора",
-            $"DLL: {available.DllPath}\n\nProgID для регистрации:",
-            defaultProgId);
-        if (string.IsNullOrWhiteSpace(progId)) return;
-
-        string? err = null;
-        ConsoleDialog.ShowProgress("Регистрация COM-коннектора...", msgs =>
+        else
         {
-            try
-            {
-                msgs($"Регистрируем {progId}...");
-                _com.Register(available.DllPath, progId.Trim());
-                msgs("Готово.");
-                Logger.Info($"COM: зарегистрован {progId} → {available.DllPath}");
-            }
-            catch (Exception ex)
-            {
-                err = ex.Message;
-                Logger.Error($"COM регистрация: {ex.Message}");
-            }
-        });
-        if (err != null)
-            ConsoleDialog.ShowOk("Ошибка регистрации COM", err);
-        R.Invalidate();
-        _nav.Pop();
-        _nav.Push(MakeComLevel());
+            var available = _com.Available.FirstOrDefault(e => e.DllPath == item.BaseName);
+            if (available == null) return;
+            _comEditValue = ComEntry.DefaultProgId(available.DllPath);
+        }
+        _comEditOriginal = _comEditValue;
+        _comEditing      = true;
     }
 
-    private void DoComInfo(ComEntry e)
+    private void HandleComEditKey(ConsoleKeyInfo k)
     {
-        var lines = new List<string>
+        if (k.Key == ConsoleKey.F2) { ComSaveEdit(); return; }
+        if (k.Key == ConsoleKey.Escape)
         {
-            $"ProgID:    {e.ProgId}",
-            $"DLL:       {e.DllPath}",
-        };
-        if (!string.IsNullOrEmpty(e.Clsid))
-            lines.Add($"CLSID:     {{{e.Clsid}}}");
-        lines.Add($"Источник:  {e.Source}");
-        lines.Add($"Файл DLL:  {(e.DllExists ? "✓ найдена" : "✗ не найдена")}");
-
-        int btn = ConsoleDialog.ShowInfo(
-            $"COM-коннектор: {e.ProgId}",
-            lines.ToArray(),
-            "  Изменить ProgID  ", "  Удалить  ", "  Закрыть  ");
-
-        if (btn == 0) // Изменить ProgID
+            _comEditing      = false;
+            _comEditValue    = "";
+            _comEditOriginal = "";
+            return;
+        }
+        if (k.Key == ConsoleKey.Backspace && _comEditValue.Length > 0)
         {
-            var newId = ConsoleDialog.InputText("Изменить ProgID",
-                $"DLL: {e.DllPath}\n\nНовый ProgID:", e.ProgId);
-            if (!string.IsNullOrWhiteSpace(newId) && newId.Trim() != e.ProgId)
+            _comEditValue = _comEditValue.Substring(0, _comEditValue.Length - 1);
+            return;
+        }
+        if (!char.IsControl(k.KeyChar))
+            _comEditValue += k.KeyChar;
+    }
+
+    private void ComSaveEdit()
+    {
+        _comEditing = false;
+        if (_nav.Count == 0) return;
+        var lvl  = _nav.Peek();
+        var item = lvl.Items[lvl.Cursor];
+        var newId = _comEditValue.Trim();
+        _comEditValue = ""; _comEditOriginal = "";
+        if (string.IsNullOrWhiteSpace(newId) || item.BaseName == null) return;
+
+        var registered = _com.Registered.FirstOrDefault(e => e.ProgId == item.BaseName);
+        if (registered != null)
+        {
+            if (newId == registered.ProgId) return; // без изменений
+            string? err = null;
+            ConsoleDialog.ShowProgress("Перерегистрация...", msgs =>
             {
-                string? err = null;
-                ConsoleDialog.ShowProgress("Перерегистрация...", msgs =>
+                try
                 {
-                    try
-                    {
-                        msgs($"Удаляем {e.ProgId}...");
-                        _com.Unregister(e);
-                        msgs($"Регистрируем {newId.Trim()}...");
-                        _com.Register(e.DllPath, newId.Trim());
-                        Logger.Info($"COM: переименован {e.ProgId} → {newId.Trim()}");
-                    }
-                    catch (Exception ex) { err = ex.Message; Logger.Error($"COM: {ex.Message}"); }
-                });
-                if (err != null) ConsoleDialog.ShowOk("Ошибка", err);
-            }
+                    msgs($"Удаляем {registered.ProgId}...");
+                    _com.Unregister(registered);
+                    msgs($"Регистрируем {newId}...");
+                    _com.Register(registered.DllPath, newId);
+                    Logger.Info($"COM: переименован {registered.ProgId} → {newId}");
+                }
+                catch (Exception ex) { err = ex.Message; Logger.Error($"COM: {ex.Message}"); }
+            });
+            R.Invalidate();
+            if (err != null) { ConsoleDialog.ShowOk("Ошибка", err); R.Invalidate(); }
         }
-        else if (btn == 1) // Удалить
+        else
         {
-            if (ConsoleDialog.Confirm("Удалить регистрацию",
-                $"Удалить COM-коннектор?\n\nProgID:  {e.ProgId}\nDLL:     {e.DllPath}\nТип:     {e.Source}",
-                defaultYes: false, "  Удалить  ", "  Отмена  ", DialogKind.Danger))
+            var available = _com.Available.FirstOrDefault(e => e.DllPath == item.BaseName);
+            if (available == null) return;
+            string? err = null;
+            ConsoleDialog.ShowProgress("Регистрация COM-коннектора...", msgs =>
             {
-                ConsoleDialog.ShowProgress("Удаление...", _ => _com.Unregister(e));
-                Logger.Info($"COM: удалена регистрация {e.ProgId}");
-            }
+                try
+                {
+                    msgs($"Регистрируем {newId}...");
+                    _com.Register(available.DllPath, newId);
+                    Logger.Info($"COM: зарегистрирован {newId} → {available.DllPath}");
+                }
+                catch (Exception ex) { err = ex.Message; Logger.Error($"COM: {ex.Message}"); }
+            });
+            R.Invalidate();
+            if (err != null) { ConsoleDialog.ShowOk("Ошибка", err); R.Invalidate(); }
         }
-        // btn == 2 или -1 (Закрыть / Esc) — ничего не делаем
 
-        R.Invalidate();
-        _nav.Pop();
-        _nav.Push(MakeComLevel());
+        RebuildCurrentLevel();
     }
 
     private void DoComDelete()
@@ -4261,6 +4276,11 @@ public class FarApp
             DrawHome(lvl);
             return;
         }
+        if (lvl.Kind == NavLevelKind.ComRoot)
+        {
+            DrawComRoot(lvl);
+            return;
+        }
 
         DrawHeader();
         R.BoxTop(1, lvl.Title);
@@ -4369,6 +4389,128 @@ public class FarApp
                 break;
         }
         return ("[" + inner + "]").PadLeft(10);
+    }
+
+    // ── COM Коннектор — split-panel: список + живой предпросмотр (пилот унификации) ──
+
+    private void DrawComRoot(NavLevel lvl)
+    {
+        DrawHeader();
+        R.SplitTop(1, lvl.Title, _comEditing ? "Редактирование" : "Просмотр");
+        R.SplitRow(2, "", R.PanelFg, R.PanelBg, "", R.PanelFg, R.PanelBg);
+        R.SplitSep(3);
+
+        var previewLines = _comEditing
+            ? BuildComEditLines()
+            : BuildComPreviewLines(lvl.Items.Count > 0 ? lvl.Items[lvl.Cursor] : null);
+
+        for (int row = ItemTop; row <= ItemBot; row++)
+        {
+            int idx = lvl.ScrollTop + (row - ItemTop);
+
+            string leftContent = "";
+            ConsoleColor lfg = R.PanelFg, lbg = R.PanelBg;
+            if (idx < lvl.Items.Count)
+            {
+                var item      = lvl.Items[idx];
+                bool isCursor = idx == lvl.Cursor;
+                if (item.IsUp)
+                    leftContent = " [..]";
+                else if (!item.CanEnter)
+                {
+                    leftContent = R.Fit(item.Name, R.LeftInnerW);
+                    lfg = ConsoleColor.DarkCyan;
+                }
+                else
+                {
+                    string warn = item.IsDead ? "!" : " ";
+                    leftContent = $" ► {warn}{R.Fit(item.Name, Math.Max(0, R.LeftInnerW - 4))}";
+                }
+                if (isCursor) { lfg = R.CurFg; lbg = R.CurBg; }
+            }
+
+            string rightContent = "";
+            ConsoleColor rfg = R.PanelFg;
+            int pIdx = row - ItemTop;
+            if (pIdx < previewLines.Count)
+            {
+                rightContent = previewLines[pIdx].Text;
+                rfg          = previewLines[pIdx].Fg;
+            }
+
+            R.SplitRow(row, leftContent, lfg, lbg, rightContent, rfg, R.PanelBg);
+        }
+
+        R.SplitSep(SepBot);
+        var hint = _comEditing
+            ? "  [F2] Сохранить  [Esc] Отмена"
+            : "  [F4] Редактировать  [F8] Удалить";
+        R.SplitRow(InfoRow, hint, R.HdrFg, R.HdrBg, "", R.HdrFg, R.HdrBg);
+        R.SplitBottom(BotBorder);
+        DrawMsg();
+        DrawKeyBar();
+        R.Flush();
+
+        if (_comEditing)
+        {
+            try
+            {
+                Console.SetCursorPosition(R.SplitDivX + 1 + 3 + _comEditValue.Length, ItemTop + 1);
+                Console.CursorVisible = true;
+            }
+            catch { }
+        }
+        else
+        {
+            Console.CursorVisible = false;
+        }
+    }
+
+    private List<(string Text, ConsoleColor Fg)> BuildComPreviewLines(NavItem? item)
+    {
+        var lines = new List<(string, ConsoleColor)>();
+        if (item == null || item.IsUp || !item.CanEnter || item.BaseName == null)
+        {
+            lines.Add(("  Выберите элемент для просмотра", ConsoleColor.DarkGray));
+            return lines;
+        }
+
+        var registered = _com.Registered.FirstOrDefault(e => e.ProgId == item.BaseName);
+        if (registered != null)
+        {
+            lines.Add((" ProgID:     " + registered.ProgId, ConsoleColor.White));
+            lines.Add((" DLL:        " + registered.DllPath, ConsoleColor.White));
+            if (!string.IsNullOrEmpty(registered.Clsid))
+                lines.Add((" CLSID:      {" + registered.Clsid + "}", ConsoleColor.White));
+            lines.Add((" Источник:   " + registered.Source, ConsoleColor.White));
+            lines.Add((" Файл DLL:   " + (registered.DllExists ? "✓ найдена" : "✗ не найдена"),
+                registered.DllExists ? ConsoleColor.Green : ConsoleColor.Red));
+            return lines;
+        }
+
+        var available = _com.Available.FirstOrDefault(e => e.DllPath == item.BaseName);
+        if (available != null)
+        {
+            lines.Add((" DLL:            " + available.DllPath, ConsoleColor.White));
+            lines.Add((" Предл. ProgID:  " + ComEntry.DefaultProgId(available.DllPath), ConsoleColor.White));
+            lines.Add((" Статус:         не зарегистрирован", ConsoleColor.Yellow));
+            return lines;
+        }
+
+        lines.Add(("  (нет данных)", ConsoleColor.DarkGray));
+        return lines;
+    }
+
+    private List<(string Text, ConsoleColor Fg)> BuildComEditLines()
+    {
+        bool changed = _comEditValue != _comEditOriginal;
+        return new List<(string, ConsoleColor)>
+        {
+            (" Редактирование ProgID:" + (changed ? "  *" : ""), ConsoleColor.Yellow),
+            (" > " + _comEditValue, changed ? ConsoleColor.Yellow : ConsoleColor.White),
+            ("", R.PanelFg),
+            (" [F2] Сохранить   [Esc] Отмена", ConsoleColor.Cyan)
+        };
     }
 
     private List<(string Text, ConsoleColor Fg, string? Nav)> BuildDiagLines()
@@ -4881,7 +5023,7 @@ public class FarApp
             NavLevelKind.WebRoot       => "[Enter] Инфо  [A] Анон.  [E] Редакт.  [J] JWT  [P] Публик.  [F8] Снять  [S] Старт  [T] Стоп  [R] Рестарт",
             NavLevelKind.EmulatorsRoot => "[Enter] Детали  [D] Удалить",
             NavLevelKind.ConfigsRoot   => "[Enter] Редактировать",
-            NavLevelKind.ComRoot       => "[Enter] Инфо/Рег.  [E] ProgID",
+            NavLevelKind.ComRoot       => "[F4] Редактировать",
             NavLevelKind.CacheRoot or NavLevelKind.CacheUser
                                        => $"[Пробел] Выделить  [V] {view}",
             _                          => "[Пробел] Выделить",
