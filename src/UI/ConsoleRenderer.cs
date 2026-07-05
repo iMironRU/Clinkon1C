@@ -326,8 +326,12 @@ internal static class R
 
     public static void SplitTop(int y, string? leftTitle, string? rightTitle)
     {
-        var lt   = string.IsNullOrEmpty(leftTitle)  ? "" : "══ " + leftTitle  + " ";
-        var rt   = string.IsNullOrEmpty(rightTitle) ? "" : "══ " + rightTitle + " ";
+        var lt = string.IsNullOrEmpty(leftTitle)  ? "" : "══ " + leftTitle  + " ";
+        var rt = string.IsNullOrEmpty(rightTitle) ? "" : "══ " + rightTitle + " ";
+        // Длинный заголовок иначе сдвигает "╦" правее фиксированной колонки SplitDivX,
+        // рассинхронизируя верхнюю рамку с "║" в SplitRow/SplitSep/SplitBottom.
+        if (lt.Length > LeftInnerW)  lt = lt.Substring(0, LeftInnerW);
+        if (rt.Length > RightInnerW) rt = rt.Substring(0, RightInnerW);
         int lRem = Math.Max(0, LeftInnerW  - lt.Length);
         int rRem = Math.Max(0, RightInnerW - rt.Length);
         Put(0, y,
