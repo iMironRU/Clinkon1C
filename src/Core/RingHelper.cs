@@ -360,8 +360,8 @@ public static class RingHelper
         try
         {
             using var proc = Process.Start(psi)!;
-            var stdout = proc.StandardOutput.ReadToEnd();
-            var stderr = proc.StandardError.ReadToEnd();
+            var stdout = StripJavaNoise(proc.StandardOutput.ReadToEnd());
+            var stderr = StripJavaNoise(proc.StandardError.ReadToEnd());
             proc.WaitForExit(60_000); // таймаут 60 сек
 
             var output = !string.IsNullOrWhiteSpace(stdout) ? stdout
@@ -375,5 +375,17 @@ public static class RingHelper
             Logger.Error($"RingHelper.RunLicense: {ex.Message}");
             return (-1, ex.Message);
         }
+    }
+
+    // JVM обязательно печатает эту строку в stderr, когда установлена JAVA_TOOL_OPTIONS
+    // (мы сами её выставляем выше для UTF-8) — не отключается, только фильтрация.
+    // Без неё: при пустом stdout (нет лицензий) код падает в fallback на stderr,
+    // и эта строка ошибочно парсится как единственная "лицензия".
+    private static string StripJavaNoise(string s)
+    {
+        var lines = s.Split('\n').Where(l =>
+            !l.TrimStart().StartsWith("Picked up JAVA_TOOL_OPTIONS", StringComparison.OrdinalIgnoreCase) &&
+            !l.TrimStart().StartsWith("Picked up _JAVA_OPTIONS",     StringComparison.OrdinalIgnoreCase));
+        return string.Join("\n", lines);
     }
 }
