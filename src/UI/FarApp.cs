@@ -66,6 +66,7 @@ internal class NavItem
     public string? UserName { get; init; }
     public string? BaseName { get; init; }
     public string? PathType { get; init; }  // "Local" / "Roaming" / "Temp"
+    public DateTime? Modified { get; init; }  // дата последнего изменения (Шаблоны)
 }
 
 internal class NavLevel
@@ -911,7 +912,8 @@ public class FarApp
                 SizeBytes = e.SizeBytes,
                 CanEnter  = isDir,
                 Paths     = new List<string> { e.Path },
-                UserName  = e.UserName
+                UserName  = e.UserName,
+                Modified  = GetLastModified(e.Path)
             });
         }
 
@@ -952,7 +954,8 @@ public class FarApp
                     SizeBytes = e.Size,
                     // Подпапки тоже можно открыть для просмотра/удаления отдельных файлов
                     CanEnter  = e.IsDir,
-                    Paths     = new List<string> { e.Path }
+                    Paths     = new List<string> { e.Path },
+                    Modified  = GetLastModified(e.Path)
                 });
             }
         }
@@ -969,6 +972,17 @@ public class FarApp
             Items       = items,
             ContextPath = groupPath
         };
+    }
+
+    private static DateTime? GetLastModified(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path)) return Directory.GetLastWriteTime(path);
+            if (File.Exists(path))      return File.GetLastWriteTime(path);
+        }
+        catch { }
+        return null;
     }
 
     // ── Базы ─────────────────────────────────────────────────────────────────
@@ -4895,6 +4909,19 @@ public class FarApp
     {
         var kind = _nav.Count > 0 ? _nav.Peek().Kind : NavLevelKind.Home;
 
+        if (kind == NavLevelKind.TemplatesUser || kind == NavLevelKind.TemplatesGroup)
+        {
+            const int dateW = 12;
+            bool bySize = _cache.SortBy == SortMode.BySize;
+            var nameLabel = bySize ? " Имя" : " Имя ▲";
+            var sizeLabel = bySize ? "Размер ▼" : "Размер";
+            var content = R.Fit(nameLabel, InnerW - SizeCW - dateW)
+                        + sizeLabel.PadLeft(SizeCW)
+                        + "Изменён".PadLeft(dateW);
+            R.BoxRow(2, content, R.HdrFg, R.HdrBg);
+            return;
+        }
+
         if (kind == NavLevelKind.BasesRoot)
         {
             const int namePartW = 32;
@@ -4981,6 +5008,23 @@ public class FarApp
 
     private void DrawItem(int row, NavItem item, bool isCursor, NavLevelKind kind = NavLevelKind.Home)
     {
+        // Шаблоны (TemplatesUser/TemplatesGroup) — трёхколоночная раскладка: имя, размер, дата изменения
+        if ((kind == NavLevelKind.TemplatesUser || kind == NavLevelKind.TemplatesGroup) && !item.IsUp)
+        {
+            const int dateW = 12;
+            ConsoleColor tfg, tbg;
+            if (isCursor) { tfg = R.CurFg; tbg = R.CurBg; }
+            else if (item.Paths.Count > 0 && item.Paths.All(p => _sel.Contains(p))) { tfg = R.SelFg; tbg = R.PanelBg; }
+            else { tfg = R.PanelFg; tbg = R.PanelBg; }
+
+            var arrow    = item.CanEnter ? "►" : " ";
+            var nameStr  = R.Fit($" {arrow} {item.Name}", InnerW - SizeCW - dateW);
+            var sizeStr  = SafeDelete.FormatSize(item.SizeBytes).PadLeft(SizeCW);
+            var dateStr  = (item.Modified?.ToString("dd.MM.yyyy") ?? "—").PadLeft(dateW);
+            R.BoxRow(row, nameStr + sizeStr + dateStr, tfg, tbg);
+            return;
+        }
+
         // Процессы — пятиколоночная раскладка
         if (kind == NavLevelKind.ProcessesRoot && !item.IsUp)
         {
