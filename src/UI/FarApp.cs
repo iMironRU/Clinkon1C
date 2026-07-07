@@ -4912,11 +4912,11 @@ public class FarApp
         if (kind == NavLevelKind.TemplatesUser || kind == NavLevelKind.TemplatesGroup)
         {
             const int dateW = 12;
-            bool bySize = _cache.SortBy == SortMode.BySize;
-            var nameLabel = bySize ? " Имя" : " Имя ▲";
-            var sizeLabel = bySize ? "Размер ▼" : "Размер";
-            var content = R.Fit(nameLabel, InnerW - SizeCW - dateW)
-                        + sizeLabel.PadLeft(SizeCW)
+            bool tplBySize = _cache.SortBy == SortMode.BySize;
+            var tplNameLabel = tplBySize ? " Имя" : " Имя ▲";
+            var tplSizeLabel = tplBySize ? "Размер ▼" : "Размер";
+            var content = R.Fit(tplNameLabel, InnerW - SizeCW - dateW)
+                        + tplSizeLabel.PadLeft(SizeCW)
                         + "Изменён".PadLeft(dateW);
             R.BoxRow(2, content, R.HdrFg, R.HdrBg);
             return;
@@ -5017,11 +5017,11 @@ public class FarApp
             else if (item.Paths.Count > 0 && item.Paths.All(p => _sel.Contains(p))) { tfg = R.SelFg; tbg = R.PanelBg; }
             else { tfg = R.PanelFg; tbg = R.PanelBg; }
 
-            var arrow    = item.CanEnter ? "►" : " ";
-            var nameStr  = R.Fit($" {arrow} {item.Name}", InnerW - SizeCW - dateW);
-            var sizeStr  = SafeDelete.FormatSize(item.SizeBytes).PadLeft(SizeCW);
-            var dateStr  = (item.Modified?.ToString("dd.MM.yyyy") ?? "—").PadLeft(dateW);
-            R.BoxRow(row, nameStr + sizeStr + dateStr, tfg, tbg);
+            var tplArrow   = item.CanEnter ? "►" : " ";
+            var tplNameStr = R.Fit($" {tplArrow} {item.Name}", InnerW - SizeCW - dateW);
+            var tplSizeStr = SafeDelete.FormatSize(item.SizeBytes).PadLeft(SizeCW);
+            var tplDateStr = (item.Modified?.ToString("dd.MM.yyyy") ?? "—").PadLeft(dateW);
+            R.BoxRow(row, tplNameStr + tplSizeStr + tplDateStr, tfg, tbg);
             return;
         }
 
