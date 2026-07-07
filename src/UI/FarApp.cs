@@ -67,6 +67,7 @@ internal class NavItem
     public string? BaseName { get; init; }
     public string? PathType { get; init; }  // "Local" / "Roaming" / "Temp"
     public DateTime? Modified { get; init; }  // дата последнего изменения (Шаблоны)
+    public bool     IsNetwork { get; init; }  // источник — сетевой путь (Шаблоны)
 }
 
 internal class NavLevel
@@ -879,7 +880,8 @@ public class FarApp
                 SizeBytes = sz,
                 CanEnter  = true,
                 Paths     = paths,
-                UserName  = g.Key
+                UserName  = g.Key,
+                IsNetwork = g.Any(e => e.IsNetwork)
             });
         }
 
@@ -913,7 +915,8 @@ public class FarApp
                 CanEnter  = isDir,
                 Paths     = new List<string> { e.Path },
                 UserName  = e.UserName,
-                Modified  = GetLastModified(e.Path)
+                Modified  = GetLastModified(e.Path),
+                IsNetwork = e.IsNetwork
             });
         }
 
@@ -931,6 +934,7 @@ public class FarApp
     private NavLevel MakeTemplatesGroupLevel(string groupPath, string groupName)
     {
         var items = new List<NavItem> { UpItem() };
+        bool isNet = TemplatesModule.IsNetworkPath(groupPath);
 
         try
         {
@@ -955,7 +959,8 @@ public class FarApp
                     // Подпапки тоже можно открыть для просмотра/удаления отдельных файлов
                     CanEnter  = e.IsDir,
                     Paths     = new List<string> { e.Path },
-                    Modified  = GetLastModified(e.Path)
+                    Modified  = GetLastModified(e.Path),
+                    IsNetwork = isNet
                 });
             }
         }
@@ -5015,10 +5020,12 @@ public class FarApp
             ConsoleColor tfg, tbg;
             if (isCursor) { tfg = R.CurFg; tbg = R.CurBg; }
             else if (item.Paths.Count > 0 && item.Paths.All(p => _sel.Contains(p))) { tfg = R.SelFg; tbg = R.PanelBg; }
+            else if (item.IsNetwork) { tfg = ConsoleColor.Cyan; tbg = R.PanelBg; }
             else { tfg = R.PanelFg; tbg = R.PanelBg; }
 
             var tplArrow   = item.CanEnter ? "►" : " ";
-            var tplNameStr = R.Fit($" {tplArrow} {item.Name}", InnerW - SizeCW - dateW);
+            var tplNetTag  = item.IsNetwork ? "[N] " : "";
+            var tplNameStr = R.Fit($" {tplArrow} {tplNetTag}{item.Name}", InnerW - SizeCW - dateW);
             var tplSizeStr = SafeDelete.FormatSize(item.SizeBytes).PadLeft(SizeCW);
             var tplDateStr = (item.Modified?.ToString("dd.MM.yyyy") ?? "—").PadLeft(dateW);
             R.BoxRow(row, tplNameStr + tplSizeStr + tplDateStr, tfg, tbg);
@@ -5133,6 +5140,10 @@ public class FarApp
         {
             fg = R.DeadFg; bg = R.PanelBg;
         }
+        else if (item.IsNetwork)
+        {
+            fg = ConsoleColor.Cyan; bg = R.PanelBg;  // сетевое хранилище (Шаблоны)
+        }
         else
         {
             fg = R.PanelFg; bg = R.PanelBg;
@@ -5166,7 +5177,8 @@ public class FarApp
         else
         {
             var arrow   = item.CanEnter ? "►" : " ";
-            var nameStr = R.Fit($" {arrow} {item.Name}", NameW);
+            var netTag  = item.IsNetwork ? "[N] " : "";
+            var nameStr = R.Fit($" {arrow} {netTag}{item.Name}", NameW);
             var sizeStr = SafeDelete.FormatSize(item.SizeBytes).PadLeft(SizeCW);
             content = nameStr + sizeStr;
         }
@@ -5245,6 +5257,13 @@ public class FarApp
             int totalFiles = _configs.Files.Count;
             var cfgInfo = $"  {found} из {totalFiles} файлов найдено  │  [Enter] Редактировать  │  [F5] Обновить";
             R.BoxRow(InfoRow, cfgInfo, R.HdrFg, R.HdrBg);
+            return;
+        }
+
+        if (lvl.Kind == NavLevelKind.TemplatesGroup && lvl.ContextPath != null)
+        {
+            int cnt = lvl.Items.Count(i => !i.IsUp);
+            R.BoxRow(InfoRow, $"  {cnt} объект(а)  │  Путь: {lvl.ContextPath}", R.HdrFg, R.HdrBg);
             return;
         }
 

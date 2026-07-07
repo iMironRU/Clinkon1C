@@ -8,6 +8,7 @@ public class TemplateEntry
     public string Name      { get; set; } = "";  // имя файла / папки шаблона
     public string Path      { get; set; } = "";  // полный путь
     public long   SizeBytes { get; set; }
+    public bool   IsNetwork { get; set; }         // источник — сетевой путь (UNC или маппинг сетевого диска)
 }
 
 /// <summary>
@@ -107,6 +108,7 @@ public class TemplatesModule
 
     private void ScanDir(string dir, string label)
     {
+        bool isNetwork = IsNetworkPath(dir);
         try
         {
             foreach (var item in Directory.GetFileSystemEntries(dir))
@@ -117,7 +119,8 @@ public class TemplatesModule
                     UserName  = label,
                     Name      = System.IO.Path.GetFileName(item),
                     Path      = item,
-                    SizeBytes = measured.size
+                    SizeBytes = measured.size,
+                    IsNetwork = isNetwork
                 });
                 TotalSize += measured.size;
             }
@@ -126,5 +129,18 @@ public class TemplatesModule
         {
             Logger.Warn($"TemplatesModule: не удалось прочитать {dir}: {ex.Message}");
         }
+    }
+
+    /// <summary>UNC-путь (\\server\share) или маппинг сетевого диска.</summary>
+    public static bool IsNetworkPath(string path)
+    {
+        try
+        {
+            if (path.StartsWith(@"\\", StringComparison.Ordinal)) return true;
+            var root = System.IO.Path.GetPathRoot(path);
+            if (string.IsNullOrEmpty(root)) return false;
+            return new DriveInfo(root).DriveType == DriveType.Network;
+        }
+        catch { return false; }
     }
 }
