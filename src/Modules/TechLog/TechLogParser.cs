@@ -41,6 +41,13 @@ public static class TechLogParser
         @",Memory=(\d+)",
         RegexOptions.Compiled);
 
+    // Реальная структура ТЖ 1С: <location>\<process>_<pid>\<YYMMDDHH>\<NN>.log —
+    // час зашифрован в ИМЕНИ ПАПКИ (YY — двузначный год), а не в имени файла.
+    // Старый формат тоже поддерживаем на случай нестандартного <log>.
+    private static readonly Regex RxHourFolder = new Regex(
+        @"[\\/](\d{8,10})[\\/][^\\/]+\.log$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     // Имя файла: {name}_{pid}_{YYYYMMDDHHMM}.log или {name}_{pid}_{YYYYMMDDHH}.log
     private static readonly Regex RxFileName = new Regex(
         @"_(\d{10,12})\.log$",
@@ -85,21 +92,37 @@ public static class TechLogParser
 
     private static DateTime ParseFileTime(string path)
     {
+        // 1) Основной путь — час из имени родительской папки (YYMMDDHH / YYYYMMDDHH)
+        var hf = RxHourFolder.Match(path);
+        if (hf.Success)
+        {
+            var ts = hf.Groups[1].Value;
+            if (ts.Length == 10 &&
+                DateTime.TryParseExact(ts, "yyyyMMddHH",
+                    null, System.Globalization.DateTimeStyles.None, out var dtY4))
+                return dtY4;
+            if (ts.Length == 8 &&
+                DateTime.TryParseExact(ts, "yyMMddHH",
+                    null, System.Globalization.DateTimeStyles.None, out var dtY2))
+                return dtY2;
+        }
+
+        // 2) Старый формат — метка в самом имени файла (нестандартный <log>)
         var m = RxFileName.Match(path);
-        if (!m.Success) return File.GetLastWriteTime(path);
+        if (m.Success)
+        {
+            var ts = m.Groups[1].Value;
+            if (ts.Length == 12 &&
+                DateTime.TryParseExact(ts, "yyyyMMddHHmm",
+                    null, System.Globalization.DateTimeStyles.None, out var dt12))
+                return dt12;
+            if (ts.Length == 10 &&
+                DateTime.TryParseExact(ts, "yyyyMMddHH",
+                    null, System.Globalization.DateTimeStyles.None, out var dt10))
+                return dt10;
+        }
 
-        var ts = m.Groups[1].Value;
-
-        if (ts.Length == 12 &&
-            DateTime.TryParseExact(ts, "yyyyMMddHHmm",
-                null, System.Globalization.DateTimeStyles.None, out var dt12))
-            return dt12;
-
-        if (ts.Length == 10 &&
-            DateTime.TryParseExact(ts, "yyyyMMddHH",
-                null, System.Globalization.DateTimeStyles.None, out var dt10))
-            return dt10;
-
+        // 3) Fallback — время изменения файла (может отставать для активно дозаписываемых файлов)
         return File.GetLastWriteTime(path);
     }
 

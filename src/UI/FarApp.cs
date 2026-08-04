@@ -2759,10 +2759,10 @@ public class FarApp
 
         var okMsg = op switch
         {
-            "start"   => "✓ Apache запущен",
-            "stop"    => "✓ Apache остановлен",
-            "restart" => "✓ Apache перезапущен",
-            _         => "✓ Готово"
+            "start"   => "+ Apache запущен",
+            "stop"    => "+ Apache остановлен",
+            "restart" => "+ Apache перезапущен",
+            _         => "+ Готово"
         };
 
         if (err != null)
@@ -2947,7 +2947,7 @@ public class FarApp
             string RuleStatus(FirewallRule? r) => r == null
                 ? "[ ] отсутствует"
                 : (r.Enabled
-                    ? $"[✓] {r.Action}  {r.Ports}"
+                    ? $"[+] {r.Action}  {r.Ports}"
                     : $"[■] отключено  {r.Ports}");
 
             var lines = new[]
@@ -3876,7 +3876,7 @@ public class FarApp
         if (err != null)
             ConsoleDialog.ShowOk($"Ошибка: {title.ToLower()}", err);
         else
-            ConsoleDialog.ShowOk(doneTitle, $"✓ {doneTitle}:\n{e.DisplayName}");
+            ConsoleDialog.ShowOk(doneTitle, $"+ {doneTitle}:\n{e.DisplayName}");
         R.Invalidate();
     }
 
@@ -4111,7 +4111,7 @@ public class FarApp
                     string? err = null;
                     ConsoleDialog.ShowProgress($"Удаление: {e.DisplayName}", _ => err = _agents.DeleteRas(e.ServiceKey));
                     if (err != null) ConsoleDialog.ShowOk("Ошибка удаления", err);
-                    else ConsoleDialog.ShowOk("Готово", $"✓ Служба RAS удалена:\n{e.DisplayName}");
+                    else ConsoleDialog.ShowOk("Готово", $"+ Служба RAS удалена:\n{e.DisplayName}");
                     _agents.Refresh();
                     RebuildCurrentLevel();
                     return false;
@@ -4162,7 +4162,7 @@ public class FarApp
         if (err != null) { ConsoleDialog.ShowOk("Ошибка", err); return; }
 
         ConsoleDialog.ShowOk("Готово",
-            $"✓ RAS зарегистрирован.\n\nВерсия: {version}\nПорт: {rasPort}\n\nВ списке нажмите [S] для запуска.");
+            $"+ RAS зарегистрирован.\n\nВерсия: {version}\nПорт: {rasPort}\n\nВ списке нажмите [S] для запуска.");
 
         _agents.Refresh();
         RebuildCurrentLevel();
@@ -4229,7 +4229,7 @@ public class FarApp
 
         var doneTitle = op switch { "start" => "Запущено", "stop" => "Остановлено", _ => "Перезапущено" };
         if (err != null) ConsoleDialog.ShowOk($"Ошибка: {title.ToLower()}", err);
-        else ConsoleDialog.ShowOk(doneTitle, $"✓ {doneTitle}:\n{displayName}");
+        else ConsoleDialog.ShowOk(doneTitle, $"+ {doneTitle}:\n{displayName}");
     }
 
     // ── Лог ───────────────────────────────────────────────────────────────────
@@ -4380,7 +4380,7 @@ public class FarApp
             case "group_licensing":
                 int eFound = _emulators.Found.Count;
                 inner = eFound > 0 ? $"! {eFound}"
-                      : (_licenses.Entries.Count > 0 ? "✓" : " ");
+                      : (_licenses.Entries.Count > 0 ? "+" : " ");
                 break;
             case "group_infra":
                 int comReg = _com.Registered.Count;
@@ -4485,7 +4485,7 @@ public class FarApp
             if (!string.IsNullOrEmpty(registered.Clsid))
                 lines.Add((" CLSID:      {" + registered.Clsid + "}", ConsoleColor.White));
             lines.Add((" Источник:   " + registered.Source, ConsoleColor.White));
-            lines.Add((" Файл DLL:   " + (registered.DllExists ? "✓ найдена" : "✗ не найдена"),
+            lines.Add((" Файл DLL:   " + (registered.DllExists ? "+ найдена" : "x не найдена"),
                 registered.DllExists ? ConsoleColor.Green : ConsoleColor.Red));
             return lines;
         }
@@ -4790,7 +4790,7 @@ public class FarApp
             // Единый форматный шаблон — заголовок и строки данных используют одну строку форматирования.
             // CW=6 покрывает самые длинные значения: "Толст"=5, "[V83]"=5, "ibcmd"=5.
             const string FMT = "  {0,-13} {1,-6}{2,-6}{3,-6}{4,-6}{5,-6}{6}";
-            static string Chk(bool f) => f ? "[✓]" : "[ ]";
+            static string Chk(bool f) => f ? "[+]" : "[ ]";
 
             lines.Add((string.Format(FMT, "Версия", "Серв", "Толст", "Тонк", "COM", "Веб", "ibcmd"), ConsoleColor.Gray, "configs"));
             foreach (var v in d.Versions)
@@ -4818,7 +4818,7 @@ public class FarApp
             {
                 string ver = ws.Version != null ? $" {ws.Version}" : "";
                 string st  = ws.IsRunning ? "работает" : "остановлен";
-                string ind = ws.IsRunning ? "[✓]" : "[■]";
+                string ind = ws.IsRunning ? "[+]" : "[■]";
                 ConsoleColor c = ws.IsRunning ? ConsoleColor.Green : ConsoleColor.Yellow;
                 lines.Add(($"  {ind}  {ws.Name + ver,-14} {st}", c, "web"));
             }
@@ -4838,7 +4838,7 @@ public class FarApp
                 string ver   = db.Version != null ? $" {db.Version}" : "";
                 string st    = db.IsRunning ? "работает" : "остановлен";
                 string admin = db.HasAdminTool ? "  [SSMS]" : "";
-                string ind   = db.IsRunning ? "[✓]" : "[■]";
+                string ind   = db.IsRunning ? "[+]" : "[■]";
                 ConsoleColor c = db.IsRunning ? ConsoleColor.Green : ConsoleColor.Yellow;
                 lines.Add(($"  {ind}  {db.Name + ver,-20} {st}{admin}", c, "srvinfo"));
             }
@@ -4857,7 +4857,7 @@ public class FarApp
             {
                 bool running = svc.Status == "Running";
                 string st  = StatusDisplay(svc.Status);
-                string ind = running ? "[✓]" : "[■]";
+                string ind = running ? "[+]" : "[■]";
                 ConsoleColor c = running ? ConsoleColor.Green : ConsoleColor.Yellow;
                 string name = svc.DisplayName.Length > 28
                     ? svc.DisplayName.Substring(0, 27) + "…"
@@ -4873,7 +4873,7 @@ public class FarApp
             lines.Add((" Порты", ConsoleColor.Cyan, "firewall"));
             var portLine = new System.Text.StringBuilder("  ");
             foreach (var (port, label, open) in d.Ports)
-                portLine.Append($"[{(open ? "✓" : " ")}] {port}  ");
+                portLine.Append($"[{(open ? "+" : " ")}] {port}  ");
             lines.Add((portLine.ToString().TrimEnd(), ConsoleColor.White, "firewall"));
         }
 
@@ -4887,7 +4887,7 @@ public class FarApp
         string FwLine(string dir, FirewallRule? r)
         {
             if (r == null) return $"  [ ]  {dir,-12} нет правила";
-            string ind  = r.Enabled ? "[✓]" : "[■]";
+            string ind  = r.Enabled ? "[+]" : "[■]";
             string info = string.IsNullOrEmpty(r.Ports) ? r.Action : $"{r.Action}  {r.Ports}";
             return $"  {ind}  {dir,-12} {info}";
         }
@@ -5295,7 +5295,7 @@ public class FarApp
         if (!string.IsNullOrEmpty(txt))
         {
             ConsoleColor fg = lvl == "ERROR" ? R.ErrFg : lvl == "WARN" ? R.WarnFg : R.InfoFg;
-            var prefix = lvl == "ERROR" ? "✗ " : lvl == "WARN" ? "! " : "  ";
+            var prefix = lvl == "ERROR" ? "x " : lvl == "WARN" ? "! " : "  ";
             R.Put(0, MsgRow, prefix + txt, fg, ConsoleColor.Black);
         }
     }

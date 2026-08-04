@@ -264,7 +264,8 @@ public class TechLogModule
         if (string.IsNullOrEmpty(cfg.ConfigPath))
         {
             sb.AppendLine("logcfg.xml не найден.");
-            sb.AppendLine("Установка 1С: Сервер обнаружена?");
+            sb.AppendLine("Возможная причина: платформа 1С не найдена в стандартном");
+            sb.AppendLine(@"расположении (C:\Program Files\1cv8 или (x86)\1cv8).");
             sb.AppendLine();
             sb.AppendLine("Нажмите [C] чтобы создать конфиг.");
             return sb.ToString();
