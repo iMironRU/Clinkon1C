@@ -285,7 +285,8 @@ public class RagentModule
 
     private static string QueryStatus(string key)
     {
-        var hScm = OpenSCManager(null, null, SC_MANAGER_ALL_ACCESS);
+        // SC_MANAGER_CONNECT (не ALL_ACCESS) — чтение статуса работает без прав администратора
+        var hScm = OpenSCManager(null, null, SC_MANAGER_CONNECT);
         if (hScm == IntPtr.Zero) return "Unknown";
         try
         {
@@ -469,6 +470,7 @@ public class RagentModule
     // ── Win32 SCM P/Invoke ────────────────────────────────────────────────────
 
     private const uint SC_MANAGER_ALL_ACCESS     = 0xF003F;
+    private const uint SC_MANAGER_CONNECT        = 0x0001; // достаточно для чтения статуса, не требует прав администратора
     private const uint SERVICE_WIN32_OWN_PROCESS = 0x00000010;
     private const uint SERVICE_AUTO_START        = 0x00000002;
     private const uint SERVICE_ERROR_NORMAL      = 0x00000001;
