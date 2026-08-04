@@ -15,10 +15,14 @@ public class TjEvent
 
 public static class TechLogParser
 {
-    // ТЖ-строка начинается с: digits:digits.digits,EventType,...
-    // Пример: 00:05.123456,DBMSSQL,...   или   05.123456,EXCP,...
+    // ТЖ-строка начинается с: digits:digits.digits-N,EventType,...
+    // "-N" — суффикс порядкового номера события внутри той же микросекунды
+    // (0..N цифр, ставится 1С всегда, включая "-0"), например:
+    //   00:58.622019-0,EXCP,4   или   02:34.622024-922016,EXCPCNTX,1
+    // Раньше суффикс не учитывался — regex не совпадал НИ С ОДНОЙ реальной
+    // строкой ТЖ, анализ всегда показывал "событий не найдено".
     private static readonly Regex RxStart = new Regex(
-        @"^(?:\d+:)?\d+\.\d+,(\w+),",
+        @"^(?:\d+:)?\d+\.\d+-?\d*,(\w+),",
         RegexOptions.Compiled);
 
     private static readonly Regex RxDuration = new Regex(
@@ -41,9 +45,16 @@ public static class TechLogParser
         @",Memory=(\d+)",
         RegexOptions.Compiled);
 
-    // Реальная структура ТЖ 1С: <location>\<process>_<pid>\<YYMMDDHH>\<NN>.log —
-    // час зашифрован в ИМЕНИ ПАПКИ (YY — двузначный год), а не в имени файла.
-    // Старый формат тоже поддерживаем на случай нестандартного <log>.
+    // Подтверждённая на реальных данных структура ТЖ 1С:
+    //   <location>\<process>_<pid>\<YYMMDDHH>.log
+    // Час записан прямо в ИМЕНИ ФАЙЛА (YY — двузначный год), без вложенной
+    // папки — например "1C\TJ\rphost_5004\26080413.log" (2026-08-04 13:xx).
+    private static readonly Regex RxHourFile = new Regex(
+        @"(\d{8,10})\.log$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // На случай альтернативной раскладки с отдельной папкой на час
+    // (не встречалась в реальных данных, оставлена как доп. fallback).
     private static readonly Regex RxHourFolder = new Regex(
         @"[\\/](\d{8,10})[\\/][^\\/]+\.log$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -92,7 +103,22 @@ public static class TechLogParser
 
     private static DateTime ParseFileTime(string path)
     {
-        // 1) Основной путь — час из имени родительской папки (YYMMDDHH / YYYYMMDDHH)
+        // 1) Подтверждённый на реальных данных формат — час прямо в имени файла
+        var hfile = RxHourFile.Match(path);
+        if (hfile.Success)
+        {
+            var ts = hfile.Groups[1].Value;
+            if (ts.Length == 10 &&
+                DateTime.TryParseExact(ts, "yyyyMMddHH",
+                    null, System.Globalization.DateTimeStyles.None, out var dtF4))
+                return dtF4;
+            if (ts.Length == 8 &&
+                DateTime.TryParseExact(ts, "yyMMddHH",
+                    null, System.Globalization.DateTimeStyles.None, out var dtF2))
+                return dtF2;
+        }
+
+        // 2) Альтернативная раскладка — час из имени родительской папки
         var hf = RxHourFolder.Match(path);
         if (hf.Success)
         {
@@ -107,7 +133,7 @@ public static class TechLogParser
                 return dtY2;
         }
 
-        // 2) Старый формат — метка в самом имени файла (нестандартный <log>)
+        // 3) Старый формат — метка в самом имени файла (нестандартный <log>)
         var m = RxFileName.Match(path);
         if (m.Success)
         {
@@ -122,7 +148,7 @@ public static class TechLogParser
                 return dt10;
         }
 
-        // 3) Fallback — время изменения файла (может отставать для активно дозаписываемых файлов)
+        // 4) Fallback — время изменения файла (может отставать для активно дозаписываемых файлов)
         return File.GetLastWriteTime(path);
     }
 
