@@ -225,6 +225,9 @@ public class TechLogModule
                 break;
         }
 
+        // Без <property name="all"/> 1С пишет только факт события (время/тип/уровень) —
+        // Context, Descr (текст ошибки), Sql, Memory в лог не попадают, анализ бесполезен.
+        sb.AppendLine("    <property name=\"all\"/>");
         sb.AppendLine("  </log>");
         sb.AppendLine("</config>");
         return sb.ToString();
