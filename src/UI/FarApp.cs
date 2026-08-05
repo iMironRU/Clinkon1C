@@ -265,34 +265,60 @@ public class FarApp
         _nav.Clear();
         _sel.Clear();
 
-        // Шаги: (метка прогресс-бара, действие)
+        // Шаги независимы — каждый пишет только в СВОЙ модуль, общего состояния между
+        // ними нет (кроме Logger, который уже потокобезопасен). Запускаем параллельно:
+        // это в основном I/O (файлы, реестр, WMI, внешние процессы вроде ring/rac) —
+        // последовательно время суммируется, параллельно — только самый долгий шаг.
         var steps = new (string Label, Action Run)[]
         {
-            ("Кэш...",          () => _cache.Refresh()),
-            ("Шаблоны...",      () => _templates.Refresh()),
-            ("Базы...",         () => _bases.Refresh()),
-            ("Лицензии...",     () => _licenses.Refresh()),
-            ("Агенты...",       () => _agents.Refresh()),
-            ("Процессы...",     () => _processes.Refresh()),
-            ("Веб...",          () => _web.Refresh()),
-            ("Эмуляторы...",    () => _emulators.Scan()),
-            ("Конфиги...",      () => _configs.Refresh()),
-            ("Диагностика...",  () => _diagnostics.ScanSync()),
-            ("COM...",          () => _com.Scan()),
-            ("Брандмауэр...",   () => _firewall.Refresh()),
-            ("EventLog...",         () => _eventLog.Load()),
-            ("Журнал операций...",  () => _fileLog = LogFileReader.Read()),
-            ("Тех. журнал...",      () => _techLog.Refresh()),
-            ("Кластер 1С...",       () => _srvInfo.Refresh()),
+            ("Кэш",              () => _cache.Refresh()),
+            ("Шаблоны",          () => _templates.Refresh()),
+            ("Базы",             () => _bases.Refresh()),
+            ("Лицензии",         () => _licenses.Refresh()),
+            ("Агенты",           () => _agents.Refresh()),
+            ("Процессы",         () => _processes.Refresh()),
+            ("Веб",              () => _web.Refresh()),
+            ("Эмуляторы",        () => _emulators.Scan()),
+            ("Конфиги",          () => _configs.Refresh()),
+            ("Диагностика",      () => _diagnostics.ScanSync()),
+            ("COM",              () => _com.Scan()),
+            ("Брандмауэр",       () => _firewall.Refresh()),
+            ("EventLog",         () => _eventLog.Load()),
+            ("Журнал операций",  () => _fileLog = LogFileReader.Read()),
+            ("Тех. журнал",      () => _techLog.Refresh()),
+            ("Кластер 1С",       () => _srvInfo.Refresh()),
         };
 
         int total = steps.Length;
-        for (int i = 0; i < total; i++)
+        int done  = 0;
+        var progressLock = new object();
+
+        // Прогресс-бар рисует ТОЛЬКО главный поток (R — не потокобезопасен);
+        // фоновые потоки лишь считают завершённые шаги через done/progressLock.
+        var threads = new Thread[steps.Length];
+        for (int i = 0; i < steps.Length; i++)
         {
-            ConsoleDialog.DrawProgressBar("Clinkon1C — Инициализация", steps[i].Label, i, total);
-            try { steps[i].Run(); }
-            catch (Exception ex) { Logger.Error($"Сканирование [{steps[i].Label}]: {ex.Message}"); }
+            var step = steps[i];
+            threads[i] = new Thread(() =>
+            {
+                try { step.Run(); }
+                catch (Exception ex) { Logger.Error($"Сканирование [{step.Label}]: {ex.Message}"); }
+                finally { lock (progressLock) done++; }
+            });
+            threads[i].IsBackground = true;
         }
+        foreach (var t in threads) t.Start();
+
+        while (true)
+        {
+            int d;
+            lock (progressLock) d = done;
+            ConsoleDialog.DrawProgressBar("Clinkon1C — Инициализация", $"Параллельное сканирование ({d}/{total})...", d, total);
+            if (d >= total) break;
+            Thread.Sleep(80);
+        }
+        foreach (var t in threads) t.Join();
+
         ConsoleDialog.DrawProgressBar("Clinkon1C — Инициализация", "Готово", total, total);
         Thread.Sleep(120); // кратко показываем 100%
 
