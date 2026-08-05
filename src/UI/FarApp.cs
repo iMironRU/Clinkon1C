@@ -3473,9 +3473,33 @@ public class FarApp
             return (title, content);
         }
 
-        ConsoleDialog.ShowTextWithKeys(GetInfo,
-            "↑↓ PgUp/PgDn — скролл  Esc — закрыть",
-            (_, _) => true);
+        // Топ-N ошибок в отчёте (Format() строит те же группы внутри) — для разворота
+        // полного текста по цифровой клавише нужно то же число групп, что и в тексте.
+        int errTop = cfg.Preset == TjPreset.Performance ? 3
+                   : cfg.Preset == TjPreset.Errors      ? 20
+                   : 0;
+        var errorGroups = errTop > 0
+            ? TechLogAnalyzer.GroupErrors(events, errTop)
+            : new List<ErrorGroup>();
+
+        var hint = errorGroups.Count > 0
+            ? "↑↓ PgUp/PgDn — скролл  [1]…[9] — текст ошибки  Esc — закрыть"
+            : "↑↓ PgUp/PgDn — скролл  Esc — закрыть";
+
+        ConsoleDialog.ShowTextWithKeys(GetInfo, hint, (key, ch) =>
+        {
+            if (char.IsDigit(ch) && ch != '0')
+            {
+                int idx = ch - '1';
+                if (idx < errorGroups.Count)
+                {
+                    var g = errorGroups[idx];
+                    var text = string.IsNullOrEmpty(g.FullDescr) ? "(нет текста)" : g.FullDescr;
+                    ConsoleDialog.ShowText($"Ошибка #{idx + 1}  —  {g.Count}×", text);
+                }
+            }
+            return true;
+        });
     }
 
     // ── Эмуляторы HASP ───────────────────────────────────────────────────────

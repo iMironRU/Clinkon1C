@@ -1,4 +1,15 @@
+using System.Text.RegularExpressions;
+
 namespace Clinkon1C.Modules.TechLog;
+
+/// <summary>Группа однотипных ошибок EXCP — для отображения топ-N и разворота полного текста по номеру.</summary>
+public class ErrorGroup
+{
+    public string   Summary   { get; set; } = "";  // очищенная от GUID/путей строка для списка
+    public int      Count     { get; set; }
+    public DateTime Last      { get; set; }
+    public string   FullDescr { get; set; } = "";  // сырой многострочный Descr одного примера из группы
+}
 
 public static class TechLogAnalyzer
 {
@@ -31,38 +42,79 @@ public static class TechLogAnalyzer
             return sb.ToString();
         }
 
-        // Группировка по первой строке Descr
-        var groups = new System.Collections.Generic.Dictionary<string, (int Count, DateTime Last)>(
-            StringComparer.Ordinal);
-        foreach (var e in events)
-        {
-            var key = Shorten(FirstLine(e.Descr), 80);
-            if (key.Length == 0) key = "(без текста — 1С не указала описание для этого события)";
-            if (groups.TryGetValue(key, out var g))
-                groups[key] = (g.Count + 1, g.Last > e.Time ? g.Last : e.Time);
-            else
-                groups[key] = (1, e.Time);
-        }
-
-        // Топ-20 по частоте
-        var top = new System.Collections.Generic.List<(string Key, int Count, DateTime Last)>();
-        foreach (var kv in groups) top.Add((kv.Key, kv.Value.Count, kv.Value.Last));
-        top.Sort((a, b) => b.Count.CompareTo(a.Count));
-        if (top.Count > 20) top.RemoveRange(20, top.Count - 20);
+        var top = GroupErrors(all, 20);
 
         sb.AppendLine();
-        sb.AppendLine("  Частота по тексту ошибки");
+        sb.AppendLine("  Частота по тексту ошибки   ([1]…[9] — открыть полный текст группы)");
         sb.AppendLine("  " + new string('┄', 72));
         sb.AppendLine($"  {"#",-4} {"Кол-во",7}  {"Последний раз",-20}  Описание");
         sb.AppendLine("  " + new string('─', 72));
 
         for (int i = 0; i < top.Count; i++)
-        {
-            var (key, cnt, last) = top[i];
-            sb.AppendLine($"  {i + 1,-4} {cnt,7}  {last:dd.MM HH:mm:ss}            {key}");
-        }
+            sb.AppendLine($"  {i + 1,-4} {top[i].Count,7}  {top[i].Last:dd.MM HH:mm:ss}            {top[i].Summary}");
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Группирует EXCP-события по очищенной от шума (GUID, путей к исходникам движка)
+    /// первой значимой строке Descr. Используется и для отчёта, и для разворота полного
+    /// текста по номеру группы (см. DoTjAnalyze в FarApp.cs).
+    /// </summary>
+    public static List<ErrorGroup> GroupErrors(List<TjEvent> all, int top)
+    {
+        var events = Filter(all, "EXCP");
+        var groups = new Dictionary<string, ErrorGroup>(StringComparer.Ordinal);
+        foreach (var e in events)
+        {
+            var key = CleanFirstLine(e.Descr, 80);
+            if (key.Length == 0) key = "(без текста — 1С не указала описание для этого события)";
+
+            if (!groups.TryGetValue(key, out var g))
+            {
+                g = new ErrorGroup { Summary = key, FullDescr = e.Descr };
+                groups[key] = g;
+            }
+            g.Count++;
+            if (e.Time > g.Last) g.Last = e.Time;
+            // если у накопленного примера текста нет, а у нового события есть — берём более информативный
+            if (string.IsNullOrEmpty(g.FullDescr) && !string.IsNullOrEmpty(e.Descr))
+                g.FullDescr = e.Descr;
+        }
+
+        var list = new List<ErrorGroup>(groups.Values);
+        list.Sort((a, b) => b.Count.CompareTo(a.Count));
+        if (list.Count > top) list.RemoveRange(top, list.Count - top);
+        return list;
+    }
+
+    // Строки-«шум» в Descr: голый путь к исходнику движка ("src\...\Foo.cpp(123):")
+    // и голый GUID без текста — реальный смысл обычно на следующей строке.
+    private static readonly Regex RxSrcLine = new Regex(
+        @"^\.{0,3}[\\/]?src[\\/].*\.(?:cpp|cs|c|h)\(\d+\):?$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex RxGuidOnly = new Regex(
+        @"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        RegexOptions.Compiled);
+    private static readonly Regex RxGuidPrefix = new Regex(
+        @"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}:\s*",
+        RegexOptions.Compiled);
+
+    /// <summary>Первая содержательная строка Descr — пропускает пути к исходникам и голые GUID.</summary>
+    private static string CleanFirstLine(string descr, int maxLen)
+    {
+        if (string.IsNullOrEmpty(descr)) return "";
+        foreach (var raw in descr.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            if (RxSrcLine.IsMatch(line)) continue;
+            if (RxGuidOnly.IsMatch(line)) continue;
+            line = RxGuidPrefix.Replace(line, "");
+            if (line.Length == 0) continue;
+            return Shorten(line, maxLen);
+        }
+        return "";
     }
 
     // ── Блокировки (TLOCK / TTIMEOUT) ────────────────────────────────────────
@@ -264,20 +316,10 @@ public static class TechLogAnalyzer
         if (excps.Count > 0)
         {
             sb.AppendLine();
-            sb.AppendLine("  ══ Топ-3 ошибки ══");
-            var groups = new System.Collections.Generic.Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var e in excps)
-            {
-                var key = Shorten(FirstLine(e.Descr), 70);
-                if (key.Length == 0) key = "(без текста — 1С не указала описание для этого события)";
-                groups.TryGetValue(key, out var c);
-                groups[key] = c + 1;
-            }
-            var topErr = new System.Collections.Generic.List<(string, int)>();
-            foreach (var kv in groups) topErr.Add((kv.Key, kv.Value));
-            topErr.Sort((a, b) => b.Item2.CompareTo(a.Item2));
-            for (int i = 0; i < Math.Min(3, topErr.Count); i++)
-                sb.AppendLine($"  {topErr[i].Item2,5}×  {topErr[i].Item1}");
+            sb.AppendLine("  ══ Топ-3 ошибки  ([1]…[3] — открыть полный текст) ══");
+            var topErr = GroupErrors(all, 3);
+            for (int i = 0; i < topErr.Count; i++)
+                sb.AppendLine($"  {topErr[i].Count,5}×  {topErr[i].Summary}");
         }
 
         if (slowDb > 0)
