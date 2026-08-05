@@ -5,10 +5,12 @@ namespace Clinkon1C.Modules.TechLog;
 /// <summary>Группа однотипных ошибок EXCP — для отображения топ-N и разворота полного текста по номеру.</summary>
 public class ErrorGroup
 {
-    public string   Summary   { get; set; } = "";  // очищенная от GUID/путей строка для списка
-    public int      Count     { get; set; }
-    public DateTime Last      { get; set; }
-    public string   FullDescr { get; set; } = "";  // сырой многострочный Descr одного примера из группы
+    public string   Summary    { get; set; } = "";  // очищенная от GUID/путей строка для списка
+    public int      Count      { get; set; }
+    public DateTime Last       { get; set; }
+    public string   FullDescr  { get; set; } = "";  // сырой многострочный Descr одного примера из группы
+    public string   FullContext{ get; set; } = "";  // стек вызовов 1С (модуль : строка : код) того же примера —
+                                                      // отсюда видно КАКОЙ бизнес-процесс/задание привело к ошибке
 }
 
 public static class TechLogAnalyzer
@@ -72,14 +74,16 @@ public static class TechLogAnalyzer
 
             if (!groups.TryGetValue(key, out var g))
             {
-                g = new ErrorGroup { Summary = key, FullDescr = e.Descr };
+                g = new ErrorGroup { Summary = key, FullDescr = e.Descr, FullContext = e.Context };
                 groups[key] = g;
             }
             g.Count++;
             if (e.Time > g.Last) g.Last = e.Time;
-            // если у накопленного примера текста нет, а у нового события есть — берём более информативный
+            // если у накопленного примера текста/контекста нет, а у нового события есть — берём более информативный
             if (string.IsNullOrEmpty(g.FullDescr) && !string.IsNullOrEmpty(e.Descr))
                 g.FullDescr = e.Descr;
+            if (string.IsNullOrEmpty(g.FullContext) && !string.IsNullOrEmpty(e.Context))
+                g.FullContext = e.Context;
         }
 
         var list = new List<ErrorGroup>(groups.Values);

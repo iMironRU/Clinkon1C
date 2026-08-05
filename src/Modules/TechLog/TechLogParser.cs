@@ -34,16 +34,20 @@ public static class TechLogParser
     // идентификаторы вроде Srvr="..." /  Ref="...". Значение может занимать
     // НЕСКОЛЬКО физических строк (например Descr со стек-трейсом EXCP) —
     // ParseFile() склеивает такие строки в один блок до применения этих regex.
+    //
+    // Context — стек вызовов 1С (модуль : строка : код, вложенно) — на реальных
+    // данных доходит до ~2600 символов (медиана ~1900), поэтому лимит намного
+    // выше, чем у Descr/Sql (короткие однострочные тексты).
     private static readonly Regex RxContext = new Regex(
-        @",Context='([^']{0,400})",
+        @",Context='([^']{0,4000})",
         RegexOptions.Compiled);
 
     private static readonly Regex RxSql = new Regex(
-        @",(?:Sql|Txt)='([^']{0,400})",
+        @",(?:Sql|Txt)='([^']{0,1000})",
         RegexOptions.Compiled);
 
     private static readonly Regex RxDescr = new Regex(
-        @",Descr='([^']{0,400})",
+        @",Descr='([^']{0,1000})",
         RegexOptions.Compiled);
 
     private static readonly Regex RxMemory = new Regex(

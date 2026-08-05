@@ -3494,8 +3494,18 @@ public class FarApp
                 if (idx < errorGroups.Count)
                 {
                     var g = errorGroups[idx];
-                    var text = string.IsNullOrEmpty(g.FullDescr) ? "(нет текста)" : g.FullDescr;
-                    ConsoleDialog.ShowText($"Ошибка #{idx + 1}  —  {g.Count}×", text);
+                    var sb = new System.Text.StringBuilder();
+                    sb.AppendLine("── Текст ошибки (Descr) ──────────────────────────────");
+                    sb.AppendLine(string.IsNullOrEmpty(g.FullDescr) ? "(нет текста)" : g.FullDescr);
+                    if (!string.IsNullOrEmpty(g.FullContext))
+                    {
+                        sb.AppendLine();
+                        sb.AppendLine("── Стек вызовов 1С (Context) ─────────────────────────");
+                        sb.AppendLine("Откуда пришла ошибка — модуль : строка : код, от внешнего вызова к внутреннему:");
+                        sb.AppendLine();
+                        sb.AppendLine(g.FullContext);
+                    }
+                    ConsoleDialog.ShowText($"Ошибка #{idx + 1}  —  {g.Count}×", sb.ToString());
                 }
             }
             return true;
