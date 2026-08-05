@@ -56,13 +56,24 @@ public class TemplatesModule
     {
         var result = new List<(string, string)>();
         var seen   = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Кэш Directory.Exists() по полному пути. На терминальном сервере с
+        // десятками профилей один и тот же сетевой путь ConfigurationTemplatesLocation
+        // (например общая папка обмена) обычно прописан у КАЖДОГО профиля —
+        // без кэша это N лишних сетевых обращений к одной и той же папке
+        // (наблюдали 54 проверки на 4 уникальных пути).
+        var existsCache = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
         void TryAdd(string rawPath, string label)
         {
             try
             {
                 var full = Path.GetFullPath(rawPath);
-                if (Directory.Exists(full) && seen.Add(full))
+                if (!existsCache.TryGetValue(full, out var exists))
+                {
+                    exists = Directory.Exists(full);
+                    existsCache[full] = exists;
+                }
+                if (exists && seen.Add(full))
                     result.Add((full, label));
             }
             catch { }
