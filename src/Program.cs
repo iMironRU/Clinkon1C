@@ -324,13 +324,38 @@ class Program
         }
         catch (Exception ex)
         {
+            Logger.Error($"Обновление: ошибка загрузки — {ex.Message}");
+
+            // Частая причина — DNS/прокси не резолвит CDN-хост GitHub
+            // (release-assets.githubusercontent.com), хотя github.com доступен.
+            // Починить это в коде нельзя — предлагаем скачать вручную через
+            // браузер, у которого часто свой DNS (DoH), независимый от системного.
             Console.SetCursorPosition(2, 4);
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.Write($"Ошибка: {ex.Message}");
-            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write("Не удалось скачать обновление автоматически.");
             Console.SetCursorPosition(2, 5);
-            Console.Write("Нажмите любую клавишу...");
-            Console.ReadKey(true);
+            Console.Write(R.Fit($"Причина: {ex.Message}", Math.Max(10, Console.WindowWidth - 4)));
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.SetCursorPosition(2, 7);
+            Console.Write("Открыть страницу загрузки в браузере?  [Y] Да   [любая клавиша] Нет");
+            Console.ForegroundColor = ConsoleColor.White;
+
+            var key = Console.ReadKey(true);
+            if (key.Key == ConsoleKey.Y)
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName        = "https://github.com/iMironRU/Clinkon1C/releases/latest",
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception exOpen)
+                {
+                    Logger.Error($"Обновление: не удалось открыть браузер — {exOpen.Message}");
+                }
+            }
         }
     }
 
