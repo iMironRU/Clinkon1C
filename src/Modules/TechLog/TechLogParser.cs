@@ -29,16 +29,21 @@ public static class TechLogParser
         @",Duration=(\d+)",
         RegexOptions.Compiled);
 
+    // Строковые свойства (Context/Descr/Sql/Txt) 1С заключает в ОДИНАРНЫЕ кавычки
+    // (Descr='...'), а не в двойные — двойными оформлены только простые
+    // идентификаторы вроде Srvr="..." /  Ref="...". Значение может занимать
+    // НЕСКОЛЬКО физических строк (например Descr со стек-трейсом EXCP) —
+    // ParseFile() склеивает такие строки в один блок до применения этих regex.
     private static readonly Regex RxContext = new Regex(
-        @",Context=""([^""]{0,200})",
+        @",Context='([^']{0,400})",
         RegexOptions.Compiled);
 
     private static readonly Regex RxSql = new Regex(
-        @",(?:Sql|Txt)=""([^""]{0,200})",
+        @",(?:Sql|Txt)='([^']{0,400})",
         RegexOptions.Compiled);
 
     private static readonly Regex RxDescr = new Regex(
-        @",Descr=""([^""]{0,200})",
+        @",Descr='([^']{0,400})",
         RegexOptions.Compiled);
 
     private static readonly Regex RxMemory = new Regex(
@@ -160,37 +165,67 @@ public static class TechLogParser
         using (var sr = new System.IO.StreamReader(fs, System.Text.Encoding.UTF8))
             text = sr.ReadToEnd();
 
+        // Одно логическое событие ТЖ может занимать НЕСКОЛЬКО физических строк —
+        // например Descr у EXCP со стек-трейсом. Новое событие всегда начинается
+        // со строки вида "чч:мм.сссссс-N,Тип,..." (см. RxStart); все строки ПОСЛЕ
+        // нeё и ДО следующей такой строки — продолжение последнего свойства
+        // (склеиваются переводом строки перед разбором свойств).
+        var block = new System.Text.StringBuilder();
+        bool hasBlock = false;
+
+        void FlushBlock()
+        {
+            if (hasBlock) ParseBlock(block.ToString(), baseTime, events);
+            block.Clear();
+            hasBlock = false;
+        }
+
         foreach (var rawLine in text.Split('\n'))
         {
             var line = rawLine.TrimEnd('\r');
             if (line.Length == 0 || line[0] == '{') continue;  // пропускаем заголовок файла
 
-            var m = RxStart.Match(line);
-            if (!m.Success) continue;
-
-            var dur = RxDuration.Match(line);
-
-            var ev = new TjEvent
+            if (RxStart.IsMatch(line))
             {
-                Time       = baseTime,
-                EventType  = m.Groups[1].Value,
-                DurationUs = dur.Success && long.TryParse(dur.Groups[1].Value, out var d) ? d : 0,
-            };
-
-            var ctx   = RxContext.Match(line);
-            if (ctx.Success)    ev.Context     = ctx.Groups[1].Value.Trim();
-
-            var sql   = RxSql.Match(line);
-            if (sql.Success)    ev.Sql         = sql.Groups[1].Value.Trim();
-
-            var descr = RxDescr.Match(line);
-            if (descr.Success)  ev.Descr       = descr.Groups[1].Value.Trim();
-
-            var mem   = RxMemory.Match(line);
-            if (mem.Success && long.TryParse(mem.Groups[1].Value, out var mb))
-                ev.MemoryBytes = mb;
-
-            events.Add(ev);
+                FlushBlock();
+                block.Append(line);
+                hasBlock = true;
+            }
+            else if (hasBlock)
+            {
+                block.Append('\n').Append(line);
+            }
         }
+        FlushBlock();
+    }
+
+    private static void ParseBlock(string block, DateTime baseTime, List<TjEvent> events)
+    {
+        var m = RxStart.Match(block);
+        if (!m.Success) return;
+
+        var dur = RxDuration.Match(block);
+
+        var ev = new TjEvent
+        {
+            Time       = baseTime,
+            EventType  = m.Groups[1].Value,
+            DurationUs = dur.Success && long.TryParse(dur.Groups[1].Value, out var d) ? d : 0,
+        };
+
+        var ctx   = RxContext.Match(block);
+        if (ctx.Success)    ev.Context     = ctx.Groups[1].Value.Trim();
+
+        var sql   = RxSql.Match(block);
+        if (sql.Success)    ev.Sql         = sql.Groups[1].Value.Trim();
+
+        var descr = RxDescr.Match(block);
+        if (descr.Success)  ev.Descr       = descr.Groups[1].Value.Trim();
+
+        var mem   = RxMemory.Match(block);
+        if (mem.Success && long.TryParse(mem.Groups[1].Value, out var mb))
+            ev.MemoryBytes = mb;
+
+        events.Add(ev);
     }
 }

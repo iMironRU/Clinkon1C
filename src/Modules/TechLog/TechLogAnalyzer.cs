@@ -37,7 +37,7 @@ public static class TechLogAnalyzer
         foreach (var e in events)
         {
             var key = Shorten(FirstLine(e.Descr), 80);
-            if (key.Length == 0) key = "(без текста ошибки — проверьте <property name=\"all\"/> в logcfg.xml)";
+            if (key.Length == 0) key = "(без текста — 1С не указала описание для этого события)";
             if (groups.TryGetValue(key, out var g))
                 groups[key] = (g.Count + 1, g.Last > e.Time ? g.Last : e.Time);
             else
@@ -269,7 +269,7 @@ public static class TechLogAnalyzer
             foreach (var e in excps)
             {
                 var key = Shorten(FirstLine(e.Descr), 70);
-                if (key.Length == 0) key = "(без текста ошибки — проверьте <property name=\"all\"/> в logcfg.xml)";
+                if (key.Length == 0) key = "(без текста — 1С не указала описание для этого события)";
                 groups.TryGetValue(key, out var c);
                 groups[key] = c + 1;
             }
