@@ -13,6 +13,12 @@
     <Description>Утилита администратора для очистки артефактов 1С</Description>
     <ApplicationIcon>Resources\app.ico</ApplicationIcon>
     <Copyright>Copyright © 2025</Copyright>
+    <!-- Workstation GC — интерактивная консольная утилита, не сервер. Server GC
+         резервирует память под каждое ядро и неохотно отдаёт её ОС обратно,
+         из-за чего процесс выглядит "прожорливым" в диспетчере задач даже
+         после того как реальные данные (большой скан кэша) уже не нужны. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
   </PropertyGroup>
 
   <!-- .NET 8: self-contained single file -->

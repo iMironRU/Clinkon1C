@@ -170,9 +170,14 @@ public static class SafeDelete
                 var di = new DirectoryInfo(path);
                 if (!di.Attributes.HasFlag(FileAttributes.ReparsePoint))
                 {
-                    foreach (var f in di.GetFiles("*", SearchOption.AllDirectories))
+                    // EnumerateFiles — потоково, по одному FileInfo за раз, а не
+                    // GetFiles (материализует МАССИВ всех FileInfo сразу). Для
+                    // кэша 1С с десятками тысяч мелких файлов и суммарным
+                    // объёмом за 100 ГБ разница в пиковой памяти — заметная.
+                    foreach (var f in di.EnumerateFiles("*", SearchOption.AllDirectories))
                     { size += f.Length; files++; }
-                    dirs = di.GetDirectories("*", SearchOption.AllDirectories).Length;
+                    foreach (var _ in di.EnumerateDirectories("*", SearchOption.AllDirectories))
+                        dirs++;
                 }
             }
             else if (File.Exists(path))
